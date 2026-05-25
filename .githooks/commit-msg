@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Enforce conventional commit format
+# Activated by: git config core.hooksPath .githooks
+
+COMMIT_MSG=$(cat "$1")
+PATTERN='^(feat|fix|docs|chore|test|refactor|ci)(\(.+\))?: .+'
+
+# Allow merge commits and revert commits
+if echo "$COMMIT_MSG" | grep -qE '^(Merge|Revert)'; then
+  exit 0
+fi
+
+if ! echo "$COMMIT_MSG" | grep -qE "$PATTERN"; then
+  echo ""
+  echo "❌ Commit rejected: message does not match Conventional Commits format."
+  echo ""
+  echo "   Expected: feat|fix|docs|chore|test|refactor|ci(scope): description"
+  echo "   Got:      $COMMIT_MSG"
+  echo ""
+  echo "   Examples:"
+  echo "     feat(dsfnet): add bidirectional cross-attention module"
+  echo "     fix(api): correct JWT expiry handling"
+  echo "     chore(ci): add bandit to pre-commit hooks"
+  echo ""
+  exit 1
+fi
+
+exit 0

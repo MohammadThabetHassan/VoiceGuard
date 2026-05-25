@@ -1,0 +1,85 @@
+# Secrets and credentials — NEVER commit
+.env
+.env.*
+*.voiceguard-env
+.voiceguard-env
+
+# Model weights and binary artifacts
+*.pt
+*.pth
+*.onnx
+*.bin
+*.pkl
+*.npy
+*.npz
+*.safetensors
+*.h5
+
+# Audio files — never commit raw audio
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+*.aac
+
+# Datasets
+data/
+datasets/
+/tmp/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+venv/
+.venv/
+env/
+.env/
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.next/
+.nuxt/
+*.tsbuildinfo
+
+# IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Docker
+.docker/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Pre-commit
+.pre-commit-cache/
+
+# Logs
+*.log
+logs/
+
+# Coverage reports
+coverage.xml
+*.cover
