@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install lint tools
+        run: pip install ruff black
+      - name: ruff check
+        run: ruff check src/ tests/
+      - name: black check
+        run: black --check src/ tests/
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install system deps
+        run: sudo apt-get install -y libsndfile1 ffmpeg
+      - name: Install package
+        run: pip install -e ".[dev]" --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Run tests
+        run: pytest --cov=voiceguard --cov-report=term-missing tests/
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install bandit
+        run: pip install bandit
+      - name: Run bandit
+        run: bandit -r src/ -ll -x src/voiceguard/training/
+
+  node:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install and lint
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
