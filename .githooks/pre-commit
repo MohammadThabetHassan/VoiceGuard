@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Pre-commit hook: runs pre-commit framework when available
+# Installed via git config core.hooksPath .githooks
+
+TOOLS=/home/ubuntu/.voiceguard-tools/bin
+
+if [[ -x "$TOOLS/pre-commit" ]]; then
+  "$TOOLS/pre-commit" run --hook-stage pre-commit
+else
+  echo "Warning: pre-commit not found at $TOOLS/pre-commit — skipping lint checks"
+  echo "Install: python3 -m venv ~/.voiceguard-tools && ~/.voiceguard-tools/bin/pip install pre-commit"
+fi
