@@ -60,7 +60,7 @@ export default function DetectTab() {
       }
       const data: DetectionResult = await resp.json()
       setResult(data)
-    } catch (err) {
+    } catch {
       setError('Network error — is the API running?')
     } finally {
       setLoading(false)
