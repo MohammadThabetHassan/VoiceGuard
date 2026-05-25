@@ -56,3 +56,12 @@
 - shap_explain.py: SHAP TreeExplainer for classical XGBoost pipeline
 - c2pa_watermark.py: spectral watermark embed + detect (18kHz PRNG carrier)
 - 36 new tests (forensics 16, xai 7, watermark 10) — 59 total non-API tests
+
+- [2026-05-25] phase-6 — feat(voip,adversarial): Twilio bridge, stream processor, PGD adversarial hardening
+
+- twilio_bridge.py: μ-law decode, Twilio Media Stream JSON protocol handler
+- stream_processor.py: rolling buffer with linear resampling (8kHz→16kHz), 3s windows
+- adversarial.py: PGD (Madry et al.), FGSM, adversarial_training_step (ε=0.01)
+- scripts/aws/launch_adversarial_training.sh: g5.xlarge Spot, ~$7.20 estimate
+- docs/GPU_TRAINING_PLAN.md: 6-run training plan with cost/time estimates
+- 26 new tests (voip 16, adversarial 10) — 85 total non-API tests
