@@ -3,3 +3,39 @@
 ## GP2 Sprint Log
 
 *(entries will be added as development proceeds)*
+- [2026-05-25 10:01] phase-0 — feat(baseline): scaffold project structure and reproduce SM2026 F1=0.9500 baseline
+
+- Add src/voiceguard package tree with all subpackage stubs
+- Port 18-dim feature extractor from SM2026 reference implementation
+  (MFCC1-13, spectral centroid/bandwidth/rolloff, jitter, shimmer)
+- Implement Enhanced+XGBoost pipeline (StandardScaler + XGBClassifier)
+  matching published hyperparameters: n_estimators=200, max_depth=4, lr=0.1
+- Add tests/test_baseline.py: 5-fold stratified CV achieves F1=0.9979
+  (target F1>=0.9500 confirmed)
+- Add tests/fixtures/osr_features.csv (474 samples, 237 real/237 fake)
+- Add Dockerfile, docker-compose.yml, .github/workflows/ci.yml
+- Update pyproject.toml with full dependency set for all phases
+- Remove redundant black hook (ruff-format is black-compatible) (7170e35)
+- [2026-05-25 10:02] phase-1 — chore(release): bump PHASE to phase-1 (64e829d)
+- [2026-05-25 10:08] phase-1 — feat(dsfnet): implement DSFNet dual-stream architecture with bidirectional cross-attention
+
+- Stream A: 5-block 1D-CNN waveform encoder (1→32→64→128→256→512 ch)
+- Stream B: 4-block 2D-ResNet spectrogram encoder (1→64→128→256→512 ch)
+- Bidirectional cross-attention fusion (8 heads, 512-dim) → 1024-dim
+- Classification head: 1024→512→256→128→2 with dropout p=0.3
+- MelSpectrogramTransform: 80-bin, 25ms/10ms frames, computed from waveform
+- 13 unit tests covering shape correctness, gradient flow, parameter count
+- train_dsfnet.py: fp16 AMP, S3 checkpoints, resumable, argparse config
+- scripts/aws/launch_dsfnet_training.sh: g5.xlarge Spot, ~4-5 USD
+- scripts/aws/prepare_asvspoof_data.sh: ASVspoof 2021 LA download + preprocess (40693fb)
+- [2026-05-25 10:08] phase-2 — chore(release): bump PHASE to phase-2 (97a5e34)
+- [2026-05-25 10:13] phase-2 — feat(evaluation): add evaluation harness, metrics, Wav2Vec2 fine-tuning script
+
+- metrics.py: EER, minDCF, ROC curve, full metrics dict
+- harness.py: model-agnostic evaluate() → EvaluationResult (JSON + markdown)
+  supports classical ML, DSFNet, Wav2Vec2 via ModelWrapper protocol
+- wav2vec2_ft.py: facebook/wav2vec2-base classifier head, fp16 AMP training
+  frozen feature encoder, cosine LR scheduler, S3 checkpoint upload
+- 11 evaluation harness tests with mock models
+- docs/RESULTS.md: results template with SM2026 baseline populated (e9ebc3f)
+- [2026-05-25 10:13] phase-3 — chore(release): bump PHASE to phase-3 (1b2011c)
