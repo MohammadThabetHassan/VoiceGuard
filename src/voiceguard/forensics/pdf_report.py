@@ -1,0 +1,140 @@
+"""NIST SP 800-86 compliant PDF forensic report generator using ReportLab."""
+
+from __future__ import annotations
+
+import io
+import time
+from pathlib import Path
+from typing import Any
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import cm
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+
+def _ts(t: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+
+
+def generate_report(
+    audio_hash: str,
+    detection_result: dict[str, Any],
+    chain_of_custody: dict[str, Any],
+    analyst_name: str = "Automated System",
+    output_path: str | Path | None = None,
+) -> bytes:
+    """Generate a PDF forensic report.
+
+    Args:
+        audio_hash: SHA-256 hex digest of the audio evidence.
+        detection_result: dict with keys label, confidence, model, latency_ms.
+        chain_of_custody: dict from ChainOfCustody.to_dict().
+        analyst_name: Name of the reporting analyst.
+        output_path: Optional path to write the PDF; bytes always returned.
+
+    Returns:
+        PDF bytes.
+    """
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        rightMargin=2 * cm,
+        leftMargin=2 * cm,
+        topMargin=2 * cm,
+        bottomMargin=2 * cm,
+    )
+    styles = getSampleStyleSheet()
+    story = []
+
+    # Title
+    story.append(Paragraph("VoiceGuard Forensic Report", styles["Title"]))
+    story.append(Paragraph("NIST SP 800-86 Compliant", styles["Normal"]))
+    story.append(Spacer(1, 0.5 * cm))
+
+    # Metadata table
+    meta = [
+        ["Report Generated", _ts(time.time())],
+        ["Analyst", analyst_name],
+        ["Evidence Hash (SHA-256)", audio_hash],
+    ]
+    t = Table(meta, colWidths=[5 * cm, 12 * cm])
+    t.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.lightgrey),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    story.append(t)
+    story.append(Spacer(1, 0.5 * cm))
+
+    # Detection result
+    story.append(Paragraph("Detection Result", styles["Heading2"]))
+    det_data = [
+        ["Attribute", "Value"],
+        ["Label", str(detection_result.get("label", "—"))],
+        ["Confidence", f"{detection_result.get('confidence', 0):.4f}"],
+        ["Model", str(detection_result.get("model", "—"))],
+        ["Latency (ms)", f"{detection_result.get('latency_ms', 0):.2f}"],
+    ]
+    dt = Table(det_data, colWidths=[5 * cm, 12 * cm])
+    dt.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#003366")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ]
+        )
+    )
+    story.append(dt)
+    story.append(Spacer(1, 0.5 * cm))
+
+    # Chain of custody
+    story.append(Paragraph("Chain of Custody", styles["Heading2"]))
+    story.append(
+        Paragraph(f"Chain Hash: {chain_of_custody.get('chain_hash', '—')}", styles["Code"])
+    )
+    story.append(Spacer(1, 0.3 * cm))
+    events = chain_of_custody.get("events", [])
+    if events:
+        rows = [["Timestamp", "Event", "Actor", "Audio Hash"]]
+        for evt in events:
+            rows.append(
+                [
+                    _ts(evt.get("timestamp", 0)),
+                    evt.get("event_type", ""),
+                    evt.get("actor", ""),
+                    evt.get("audio_hash", "")[:16] + "…",
+                ]
+            )
+        ct = Table(rows, colWidths=[4 * cm, 3 * cm, 4 * cm, 6 * cm])
+        ct.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#003366")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ]
+            )
+        )
+        story.append(ct)
+
+    doc.build(story)
+    pdf_bytes = buf.getvalue()
+
+    if output_path is not None:
+        Path(output_path).write_bytes(pdf_bytes)
+
+    return pdf_bytes

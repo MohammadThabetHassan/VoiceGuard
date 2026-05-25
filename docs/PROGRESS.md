@@ -39,3 +39,20 @@
 - 11 evaluation harness tests with mock models
 - docs/RESULTS.md: results template with SM2026 baseline populated (e9ebc3f)
 - [2026-05-25 10:13] phase-3 — chore(release): bump PHASE to phase-3 (1b2011c)
+- [2026-05-25] phase-4 — feat(api): FastAPI backend with JWT auth, rate limiting, PDPL compliance
+
+- JWT token issuance/verification, 9 async endpoint tests via ASGITransport
+- POST /detect (classical), POST /synthesize + /forensic/report (501 stubs)
+- WS /ws/stream: 3s windows, 1s hop; WS /twilio/stream stub
+- slowapi 60 req/min, PDPL auto-delete ≤60s via BackgroundTasks
+- React 18 + Vite + Tailwind frontend: DetectTab, GenerateTab, ResultsTab
+- Recharts BarChart for baseline results, ConfidenceGauge component
+
+- [2026-05-25] phase-5 — feat(forensics,xai,watermark): chain-of-custody, PDF reports, SHAP, Grad-CAM, C2PA watermark
+
+- chain_of_custody.py: SHA-256 append-only chain log, tamper detection
+- pdf_report.py: NIST SP 800-86 compliant PDF via ReportLab
+- gradcam.py: waveform + spectrogram Grad-CAM via captum LayerGradCam
+- shap_explain.py: SHAP TreeExplainer for classical XGBoost pipeline
+- c2pa_watermark.py: spectral watermark embed + detect (18kHz PRNG carrier)
+- 36 new tests (forensics 16, xai 7, watermark 10) — 59 total non-API tests

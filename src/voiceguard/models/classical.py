@@ -146,6 +146,8 @@ class ClassicalDetector:
             self._clf = load_model(model_path)
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> ClassicalDetector:
+        if y.dtype.kind not in ("i", "u"):
+            y = encode_labels(y)
         self._clf = train(X, y)
         return self
 
