@@ -10,24 +10,25 @@ import numpy as np
 
 
 def compute_eer(scores: np.ndarray, labels: np.ndarray) -> float:
-    """Compute Equal Error Rate.
+    """Compute Equal Error Rate via brentq root-finding on the piecewise-linear ROC.
 
     Args:
         scores: Continuous fake-class probability scores (higher = more likely fake).
         labels: Binary ground-truth labels (1=fake, 0=real).
 
     Returns:
-        EER as a fraction in [0, 1].
+        EER as a fraction in [0, 1], or float('nan') if the ROC is degenerate.
     """
+    from scipy.optimize import brentq
     from sklearn.metrics import roc_curve
 
     fpr, tpr, _ = roc_curve(labels, scores, pos_label=1)
     fnr = 1.0 - tpr
-    # Find crossover point where FPR ≈ FNR
-    abs_diff = np.abs(fnr - fpr)
-    idx = int(np.argmin(abs_diff))
-    eer = float((fpr[idx] + fnr[idx]) / 2.0)
-    return eer
+    try:
+        eer = brentq(lambda x: x - np.interp(x, fpr, fnr), 0.0, 1.0)
+    except ValueError:
+        eer = float("nan")
+    return float(eer)
 
 
 def compute_min_dcf(
