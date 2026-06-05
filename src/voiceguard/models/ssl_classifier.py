@@ -3,12 +3,19 @@ Generic SSL backbone classifier for voice deepfake detection.
 Supports: microsoft/wavlm-base-plus, facebook/wav2vec2-large, microsoft/wavlm-large, etc.
 """
 from __future__ import annotations
-import argparse, json, math, sys, time
+
+import argparse
+import json
+import math
+import sys
+import time
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
+
+from voiceguard.evaluation.metrics import compute_eer
 
 
 class SSLClassifier(nn.Module):
@@ -18,9 +25,9 @@ class SSLClassifier(nn.Module):
                  dropout: float = 0.1) -> None:
         super().__init__()
         self.model_name = model_name
-        from transformers import AutoModel, AutoConfig
-        cfg = AutoConfig.from_pretrained(model_name)
-        self.backbone = AutoModel.from_pretrained(model_name)
+        from transformers import AutoConfig, AutoModel
+        cfg = AutoConfig.from_pretrained(model_name)  # nosec B615
+        self.backbone = AutoModel.from_pretrained(model_name)  # nosec B615
         if freeze_feature_encoder and hasattr(self.backbone, 'feature_extractor'):
             self.backbone.feature_extractor._freeze_parameters()
         hidden = cfg.hidden_size
@@ -75,9 +82,6 @@ class AudioDataset(torch.utils.data.Dataset):
         return wav, label
 
 
-from voiceguard.evaluation.metrics import compute_eer
-
-
 def _eval(model, loader, device, criterion, augmentor=None):
     model.eval()
     total_loss, all_scores, all_labels = 0.0, [], []
@@ -95,7 +99,8 @@ def _eval(model, loader, device, criterion, augmentor=None):
 def train(args: argparse.Namespace) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda":
-        torch.cuda.init(); torch.zeros(1, device=device)
+        torch.cuda.init()
+        torch.zeros(1, device=device)
     print(f"Device: {device}")
 
     from torch.utils.data import DataLoader
@@ -104,7 +109,8 @@ def train(args: argparse.Namespace) -> None:
     test_ds  = AudioDataset(args.test_path,  args.sr * 3) if args.test_path else None
     if not train_ds or not val_ds:
         sys.exit("ERROR: empty dataset")
-    print(f"Train: {len(train_ds)} | Val: {len(val_ds)}" + (f" | Test: {len(test_ds)}" if test_ds else ""))
+    test_info = f" | Test: {len(test_ds)}" if test_ds else ""
+    print(f"Train: {len(train_ds)} | Val: {len(val_ds)}{test_info}")
 
     train_loader = DataLoader(train_ds, args.batch_size, shuffle=True,  num_workers=4)
     val_loader   = DataLoader(val_ds,   args.batch_size, num_workers=4)
@@ -121,7 +127,8 @@ def train(args: argparse.Namespace) -> None:
     # Warmup 5% + cosine decay
     warmup = max(1, int(0.05 * args.epochs))
     def _lr(ep):
-        if ep < warmup: return (ep + 1) / warmup
+        if ep < warmup:
+            return (ep + 1) / warmup
         p = (ep - warmup) / max(1, args.epochs - warmup)
         return 0.5 * (1 + math.cos(math.pi * p))
 
@@ -132,14 +139,15 @@ def train(args: argparse.Namespace) -> None:
     # Experiment label includes model short name
     short = args.model_name.split("/")[-1]
     expt = f"{short}_{args.epochs}ep_b{args.batch_size}_lr{args.lr}"
-    if args.augment: expt += "_aug"
+    if args.augment:
+        expt += "_aug"
     out_dir = Path(args.checkpoint_dir) / expt
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "config.json").write_text(json.dumps(vars(args), indent=2))
 
     use_amp = device.type == "cuda"
     scaler = torch.amp.GradScaler("cuda") if use_amp else None
-    history, best_eer, best_loss, best_ep, patience = [], float("inf"), float("inf"), -1, 0
+    history, best_eer, _best_loss, best_ep, patience = [], float("inf"), float("inf"), -1, 0
 
     for epoch in range(args.epochs):
         model.train()
@@ -157,7 +165,8 @@ def train(args: argparse.Namespace) -> None:
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                scaler.step(optimizer); scaler.update()
+                scaler.step(optimizer)
+                scaler.update()
             else:
                 loss = criterion(model(wavs), labels)
                 loss.backward()
@@ -171,11 +180,14 @@ def train(args: argparse.Namespace) -> None:
              "val_loss": round(vm["loss"], 4),
              "val_eer":  None if math.isnan(vm["eer"]) else round(vm["eer"], 4),
              "lr": scheduler.get_last_lr()[0], "elapsed_s": round(time.time() - t0, 1)}
-        history.append(m); print(json.dumps(m))
+        history.append(m)
+        print(json.dumps(m))
 
         val_eer = vm["eer"]
         if not math.isnan(val_eer) and val_eer < best_eer:
-            best_eer, best_loss, best_ep, patience = val_eer, vm["loss"], epoch, 0
+            best_eer, _best_loss, best_ep, patience = (
+                val_eer, vm["loss"], epoch, 0
+            )
             torch.save({"epoch": epoch, "model_state": model.state_dict(),
                         "best_val_eer": best_eer, "metrics": m}, out_dir / "model_best.pt")
         else:

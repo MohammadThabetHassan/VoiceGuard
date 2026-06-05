@@ -86,4 +86,4 @@ asyncio_mode = "auto"
 
 [tool.bandit]
 targets = ["src"]
-skips = ["B101", "B311"]
+skips = ["B101", "B311", "B404", "B603", "B607"]

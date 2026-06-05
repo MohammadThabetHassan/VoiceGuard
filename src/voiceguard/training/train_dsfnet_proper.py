@@ -14,6 +14,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset, random_split
 
+from voiceguard.evaluation.metrics import compute_eer
+
 
 class AudioDataset(Dataset):
     def __init__(self, data_paths: list[str | Path], clip_samples: int = 48000,
@@ -45,9 +47,6 @@ class AudioDataset(Dataset):
         if not self.squeeze:
             wav = wav.unsqueeze(0)  # (1, T) for CNN models
         return wav, label
-
-
-from voiceguard.evaluation.metrics import compute_eer
 
 
 def evaluate(model: nn.Module, loader: DataLoader, device: torch.device,
@@ -91,8 +90,8 @@ def mixup_criterion(criterion, pred, y_a, y_b, lam):
 
 
 def get_model(model_name: str, dropout: float, sr: int, augment: bool) -> nn.Module:
-    from voiceguard.models.dsfnet import DSFNet, DSFNetLarge, DSFNetXL, DSFNetTiny, DSFNetV2
     from voiceguard.models.aasist import AASIST, AASISTLarge
+    from voiceguard.models.dsfnet import DSFNet, DSFNetLarge, DSFNetTiny, DSFNetV2, DSFNetXL
     from voiceguard.models.wav2vec2_ft import Wav2Vec2Classifier
 
     if model_name == "aasist":
@@ -204,10 +203,11 @@ def train(args: argparse.Namespace) -> None:
     scaler = torch.amp.GradScaler(device="cuda") if use_amp else None
     history: list[dict] = []
     # Restore tracking state from checkpoint so resume doesn't clobber model_best.pt.
-    best_val_eer = float(ckpt.get("best_val_eer", float("inf"))) if args.resume and ckpts else float("inf")
-    best_val_loss = float(ckpt.get("best_val_loss", float("inf"))) if args.resume and ckpts else float("inf")
-    best_epoch = int(ckpt.get("best_epoch", -1)) if args.resume and ckpts else -1
-    patience_counter = int(ckpt.get("patience_counter", 0)) if args.resume and ckpts else 0
+    resumed = args.resume and ckpts
+    best_val_eer = float(ckpt.get("best_val_eer", float("inf"))) if resumed else float("inf")
+    best_val_loss = float(ckpt.get("best_val_loss", float("inf"))) if resumed else float("inf")
+    best_epoch = int(ckpt.get("best_epoch", -1)) if resumed else -1
+    patience_counter = int(ckpt.get("patience_counter", 0)) if resumed else 0
 
     accum_steps = max(1, args.accum_steps)
 
@@ -313,7 +313,10 @@ def train(args: argparse.Namespace) -> None:
             torch.save(ckpt, out_dir / f"model_epoch{epoch:03d}.pt")
 
         if args.early_stop > 0 and patience_counter >= args.early_stop:
-            print(f"Early stopping at epoch {epoch} (best val_eer={best_val_eer:.4f} @ epoch {best_epoch})")
+            print(
+                f"Early stopping at epoch {epoch} "
+                f"(best val_eer={best_val_eer:.4f} @ epoch {best_epoch})"
+            )
             break
 
     # Evaluate on test set once using the best val_EER checkpoint — never used for selection.
@@ -331,7 +334,10 @@ def train(args: argparse.Namespace) -> None:
         print(json.dumps(final))
 
     (out_dir / "training_history.json").write_text(json.dumps(history, indent=2))
-    print(f"Training complete. Best val_EER={best_val_eer:.4f} @ epoch {best_epoch} | test EER={test_eer:.4f}")
+    print(
+        f"Training complete. Best val_EER={best_val_eer:.4f} "
+        f"@ epoch {best_epoch} | test EER={test_eer:.4f}"
+    )
     print(f"Results: {out_dir}")
 
 

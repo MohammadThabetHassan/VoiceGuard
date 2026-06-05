@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import torch.nn.functional as F  # noqa: N812
 import torchaudio.transforms as audio_tx
 
 
@@ -221,6 +221,6 @@ class AASIST(nn.Module):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
-def AASISTLarge(sr: int = 16000, augment: bool = False) -> AASIST:
+def AASISTLarge(sr: int = 16000, augment: bool = False) -> AASIST:  # noqa: N802
     return AASIST(sr=sr, d_model=384, n_heads=6, n_graph_layers=3,
                   dropout=0.2, augment=augment)

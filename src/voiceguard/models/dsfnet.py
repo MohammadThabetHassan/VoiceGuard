@@ -16,10 +16,10 @@ Output: logits (B, 2) — class 0=genuine, class 1=synthetic
 from __future__ import annotations
 
 import math
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torchaudio.functional as audio_fn
+import torch.nn.functional as F  # noqa: N812
 import torchaudio.transforms as audio_tx
 
 
@@ -431,7 +431,7 @@ class DSFNet(nn.Module):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
-def DSFNetLarge(dropout: float = 0.3, sr: int = 16000, augment: bool = False) -> DSFNet:
+def DSFNetLarge(dropout: float = 0.3, sr: int = 16000, augment: bool = False) -> DSFNet:  # noqa: N802
     """Larger variant: ~14M params."""
     return DSFNet(
         wave_channels=(1, 64, 128, 256, 384, 512, 640),
@@ -444,7 +444,7 @@ def DSFNetLarge(dropout: float = 0.3, sr: int = 16000, augment: bool = False) ->
     )
 
 
-def DSFNetXL(dropout: float = 0.3, sr: int = 16000, augment: bool = False) -> DSFNet:
+def DSFNetXL(dropout: float = 0.3, sr: int = 16000, augment: bool = False) -> DSFNet:  # noqa: N802
     """Extra-large variant: ~18M params."""
     return DSFNet(
         wave_channels=(1, 64, 128, 256, 384, 512, 640, 768),
@@ -457,7 +457,7 @@ def DSFNetXL(dropout: float = 0.3, sr: int = 16000, augment: bool = False) -> DS
     )
 
 
-def DSFNetTiny(dropout: float = 0.2, sr: int = 16000, augment: bool = False) -> DSFNet:
+def DSFNetTiny(dropout: float = 0.2, sr: int = 16000, augment: bool = False) -> DSFNet:  # noqa: N802
     """Tiny variant for edge deployment: ~450K params, targets INT8 < 2MB.
 
     Designed for ONNX INT8 export: 450K fp32 params → ~450KB INT8.
@@ -582,7 +582,7 @@ class DSFNetV2(nn.Module):
 
         # Cross-attention: wave queries, spec context as key/value
         x = wave_seq
-        for cross, norm in zip(self.cross_layers, self.cross_norms):
+        for cross, norm in zip(self.cross_layers, self.cross_norms, strict=False):
             attn_out, _ = cross(x, spec_ctx, spec_ctx)
             x = norm(x + attn_out)
 

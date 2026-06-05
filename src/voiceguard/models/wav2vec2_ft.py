@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -17,6 +16,8 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+
+from voiceguard.evaluation.metrics import compute_eer
 
 
 class Wav2Vec2Classifier(nn.Module):
@@ -102,8 +103,6 @@ class Wav2Vec2Dataset(torch.utils.data.Dataset):
         return wav, label
 
 
-from voiceguard.evaluation.metrics import compute_eer
-
 
 def _eval_loader(model: nn.Module, loader, device: torch.device,
                   criterion: nn.Module) -> dict:
@@ -140,7 +139,7 @@ def train(args: argparse.Namespace) -> None:
     test_ds = Wav2Vec2Dataset(args.test_path, clip_samples=args.sr * 3) if args.test_path else None
 
     if len(train_ds) == 0 or len(val_ds) == 0:
-        print(f"ERROR: empty train or val dataset", file=sys.stderr)
+        print("ERROR: empty train or val dataset", file=sys.stderr)
         sys.exit(1)
 
     print(f"Train: {len(train_ds)} | Val: {len(val_ds)}", end="")
@@ -150,7 +149,9 @@ def train(args: argparse.Namespace) -> None:
 
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, num_workers=4)
-    test_loader = DataLoader(test_ds, batch_size=args.batch_size, num_workers=4) if test_ds else None
+    test_loader = (
+        DataLoader(test_ds, batch_size=args.batch_size, num_workers=4) if test_ds else None
+    )
 
     model = Wav2Vec2Classifier(freeze_feature_encoder=True).to(device)
     print(f"Trainable parameters: {model.count_parameters():,}")
@@ -238,7 +239,10 @@ def train(args: argparse.Namespace) -> None:
             patience_counter += 1
 
         if args.early_stop > 0 and patience_counter >= args.early_stop:
-            print(f"Early stopping at epoch {epoch} (best val_loss={best_val_loss:.4f} @ epoch {best_epoch})")
+            print(
+                f"Early stopping at epoch {epoch} "
+                f"(best val_loss={best_val_loss:.4f} @ epoch {best_epoch})"
+            )
             break
 
     # Evaluate on test set once using the best val_loss checkpoint.
@@ -256,7 +260,10 @@ def train(args: argparse.Namespace) -> None:
 
     metrics_path = out_dir / "training_history.json"
     metrics_path.write_text(json.dumps(history, indent=2))
-    print(f"Training complete. Best val_loss={best_val_loss:.4f} @ epoch {best_epoch} | test EER={test_eer:.4f}")
+    print(
+        f"Training complete. Best val_loss={best_val_loss:.4f} "
+        f"@ epoch {best_epoch} | test EER={test_eer:.4f}"
+    )
 
 
 def main() -> None:
@@ -269,7 +276,9 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--sr", type=int, default=16000)
-    parser.add_argument("--early-stop", type=int, default=5, help="Early stop patience (0=disabled)")
+    parser.add_argument(
+        "--early-stop", type=int, default=5, help="Early stop patience (0=disabled)"
+    )
     parser.add_argument("--augment", action="store_true", help="Enable codec augmentation")
     args = parser.parse_args()
     train(args)
