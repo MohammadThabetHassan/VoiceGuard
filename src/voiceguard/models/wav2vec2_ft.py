@@ -28,8 +28,8 @@ class Wav2Vec2Classifier(nn.Module):
     """
 
     MODEL_NAME = "facebook/wav2vec2-base"
-    # Pin model revision for reproducibility (not a secret — HuggingFace commit hash)
-    MODEL_REVISION = "0b5b8e341f1393bce626f89a7cf5db20a7d24b1f"  # pragma: allowlist secret
+    # Pin revision for reproducibility — backbone weights must match saved checkpoints.
+    MODEL_REVISION = "0b5b8e868dd84f03fd87d01f9c4ff0f080fecfe8"  # pragma: allowlist secret
 
     def __init__(
         self,
@@ -55,6 +55,8 @@ class Wav2Vec2Classifier(nn.Module):
 
     def forward(self, input_values: torch.Tensor) -> torch.Tensor:
         """Args: input_values (B, T) raw waveform. Returns logits (B, 2)."""
+        if input_values.dtype != torch.float32:
+            input_values = input_values.float()
         outputs = self.backbone(input_values)
         # Mean-pool over time
         hidden = outputs.last_hidden_state.mean(dim=1)  # (B, 768)
@@ -100,36 +102,65 @@ class Wav2Vec2Dataset(torch.utils.data.Dataset):
         return wav, label
 
 
-def compute_eer(scores: np.ndarray, labels: np.ndarray) -> float:
-    from sklearn.metrics import roc_curve
+from voiceguard.evaluation.metrics import compute_eer
 
-    fpr, tpr, _ = roc_curve(labels, scores, pos_label=1)
-    fnr = 1.0 - tpr
-    idx = int(np.argmin(np.abs(fnr - fpr)))
-    return float((fpr[idx] + fnr[idx]) / 2.0)
+
+def _eval_loader(model: nn.Module, loader, device: torch.device,
+                  criterion: nn.Module) -> dict:
+    model.eval()
+    total_loss = 0.0
+    all_scores: list[float] = []
+    all_labels: list[int] = []
+    with torch.no_grad():
+        for wavs, labels in loader:
+            wavs, labels_dev = wavs.to(device), labels.to(device)
+            logits = model(wavs)
+            total_loss += criterion(logits, labels_dev).item()
+            probs = torch.softmax(logits, dim=-1)[:, 1]
+            all_scores.extend(probs.cpu().tolist())
+            all_labels.extend(labels.tolist())
+    total_loss /= len(loader)
+    eer = compute_eer(np.array(all_scores), np.array(all_labels))
+    return {"loss": total_loss, "eer": eer}
 
 
 def train(args: argparse.Namespace) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Initialize CUDA context before forking DataLoader workers — forked workers
+    # inherit partial CUDA state which can corrupt the NVML P2P check on .to(device).
+    if device.type == "cuda":
+        torch.cuda.init()
+        torch.zeros(1, device=device)
     print(f"Device: {device}")
 
-    from torch.utils.data import DataLoader, random_split
+    from torch.utils.data import DataLoader
 
-    dataset = Wav2Vec2Dataset(args.data_path, clip_samples=args.sr * 3)
-    if len(dataset) == 0:
-        print(f"ERROR: No .pt files under {args.data_path}", file=sys.stderr)
+    train_ds = Wav2Vec2Dataset(args.train_path, clip_samples=args.sr * 3)
+    val_ds = Wav2Vec2Dataset(args.val_path, clip_samples=args.sr * 3)
+    test_ds = Wav2Vec2Dataset(args.test_path, clip_samples=args.sr * 3) if args.test_path else None
+
+    if len(train_ds) == 0 or len(val_ds) == 0:
+        print(f"ERROR: empty train or val dataset", file=sys.stderr)
         sys.exit(1)
 
-    n_val = max(1, int(0.1 * len(dataset)))
-    n_train = len(dataset) - n_val
-    train_ds, val_ds = random_split(
-        dataset, [n_train, n_val], generator=torch.Generator().manual_seed(42)
-    )
+    print(f"Train: {len(train_ds)} | Val: {len(val_ds)}", end="")
+    if test_ds:
+        print(f" | Test: {len(test_ds)}", end="")
+    print()
+
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, num_workers=4)
+    test_loader = DataLoader(test_ds, batch_size=args.batch_size, num_workers=4) if test_ds else None
 
     model = Wav2Vec2Classifier(freeze_feature_encoder=True).to(device)
     print(f"Trainable parameters: {model.count_parameters():,}")
+
+    # Codec augmentation for the 2019→2021 domain gap (applied per-batch on GPU)
+    augmentor = None
+    if args.augment:
+        from voiceguard.models.dsfnet import AudioAugment
+        augmentor = AudioAugment(sample_rate=args.sr).to(device)
+        augmentor.train()
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
@@ -142,6 +173,9 @@ def train(args: argparse.Namespace) -> None:
     scaler = torch.amp.GradScaler(device="cuda") if use_amp else None
 
     history: list[dict] = []
+    best_val_loss = float("inf")
+    best_epoch = -1
+    patience_counter = 0
 
     for epoch in range(args.epochs):
         model.train()
@@ -152,6 +186,11 @@ def train(args: argparse.Namespace) -> None:
             wavs = wavs.to(device)
             labels = labels.to(device)
             optimizer.zero_grad()
+
+            # Apply codec augmentation (AudioAugment expects (B,1,T), wav2vec2 needs (B,T))
+            if augmentor is not None:
+                augmentor.train()
+                wavs = augmentor(wavs.unsqueeze(1)).squeeze(1)
 
             if use_amp and scaler is not None:
                 with torch.amp.autocast(device_type="cuda"):
@@ -174,56 +213,64 @@ def train(args: argparse.Namespace) -> None:
         scheduler.step()
         train_loss /= len(train_loader)
 
-        model.eval()
-        val_loss = 0.0
-        all_scores: list[float] = []
-        all_labels: list[int] = []
-
-        with torch.no_grad():
-            for wavs, labels in val_loader:
-                wavs = wavs.to(device)
-                labels_dev = labels.to(device)
-                logits = model(wavs)
-                val_loss += criterion(logits, labels_dev).item()
-                probs = torch.softmax(logits, dim=-1)[:, 1]
-                all_scores.extend(probs.cpu().tolist())
-                all_labels.extend(labels.tolist())
-
-        val_loss /= len(val_loader)
-        eer = compute_eer(np.array(all_scores), np.array(all_labels))
+        val_m = _eval_loader(model, val_loader, device, criterion)
+        model.train()
         elapsed = time.time() - t0
 
         metrics = {
             "epoch": epoch,
             "train_loss": round(train_loss, 4),
-            "val_loss": round(val_loss, 4),
-            "eer": round(eer, 4),
+            "val_loss": round(val_m["loss"], 4),
+            "val_eer": round(val_m["eer"], 4),
             "elapsed_s": round(elapsed, 1),
         }
         history.append(metrics)
         print(json.dumps(metrics))
 
-        ckpt_path = out_dir / f"wav2vec2_epoch{epoch:03d}.pt"
-        torch.save(model.state_dict(), ckpt_path)
-        if args.s3_path:
-            subprocess.run(["aws", "s3", "cp", str(ckpt_path), f"{args.s3_path}/"], check=False)
+        # Select best and early-stop on val_loss — test set never drives selection.
+        if val_m["loss"] < best_val_loss:
+            best_val_loss = val_m["loss"]
+            best_epoch = epoch
+            patience_counter = 0
+            torch.save({"epoch": epoch, "model_state": model.state_dict(),
+                        "metrics": metrics}, out_dir / "model_best.pt")
+        else:
+            patience_counter += 1
 
-    metrics_path = out_dir / "wav2vec2_training_history.json"
+        if args.early_stop > 0 and patience_counter >= args.early_stop:
+            print(f"Early stopping at epoch {epoch} (best val_loss={best_val_loss:.4f} @ epoch {best_epoch})")
+            break
+
+    # Evaluate on test set once using the best val_loss checkpoint.
+    test_eer = float("nan")
+    if test_loader and (out_dir / "model_best.pt").exists():
+        print("Loading best checkpoint for final test evaluation...")
+        best_state = torch.load(out_dir / "model_best.pt", weights_only=True)
+        model.load_state_dict(best_state["model_state"])
+        test_m = _eval_loader(model, test_loader, device, criterion)
+        test_eer = test_m["eer"]
+        final = {"best_epoch": best_epoch, "best_val_loss": best_val_loss,
+                 "test_eer": round(test_eer, 4), "test_loss": round(test_m["loss"], 4)}
+        (out_dir / "final_results.json").write_text(json.dumps(final, indent=2))
+        print(json.dumps(final))
+
+    metrics_path = out_dir / "training_history.json"
     metrics_path.write_text(json.dumps(history, indent=2))
-    if args.s3_path:
-        subprocess.run(["aws", "s3", "cp", str(metrics_path), f"{args.s3_path}/"], check=False)
-    print(f"Training complete. {len(history)} epochs logged.")
+    print(f"Training complete. Best val_loss={best_val_loss:.4f} @ epoch {best_epoch} | test EER={test_eer:.4f}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fine-tune Wav2Vec2 for deepfake detection")
-    parser.add_argument("--data-path", required=True)
-    parser.add_argument("--s3-path", default=None)
+    parser.add_argument("--train-path", required=True)
+    parser.add_argument("--val-path", required=True)
+    parser.add_argument("--test-path", default=None)
     parser.add_argument("--checkpoint-dir", default="checkpoints/wav2vec2")
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--sr", type=int, default=16000)
+    parser.add_argument("--early-stop", type=int, default=5, help="Early stop patience (0=disabled)")
+    parser.add_argument("--augment", action="store_true", help="Enable codec augmentation")
     args = parser.parse_args()
     train(args)
 
