@@ -102,8 +102,13 @@ def train(args: argparse.Namespace) -> None:
         torch.zeros(1, device=device)
     print(f"Device: {device}")
 
-    from torch.utils.data import DataLoader
+    from torch.utils.data import ConcatDataset, DataLoader
     train_ds = AudioDataset(args.train_path, args.sr * 3)
+    for extra in (args.extra_train_path or []):
+        extra_ds = AudioDataset(extra, args.sr * 3)
+        if extra_ds:
+            train_ds = ConcatDataset([train_ds, extra_ds])
+            print(f"  + {extra}: {len(extra_ds)} samples")
     val_ds   = AudioDataset(args.val_path,   args.sr * 3)
     test_ds  = AudioDataset(args.test_path,  args.sr * 3) if args.test_path else None
     if not train_ds or not val_ds:
@@ -256,6 +261,9 @@ def main():
     p.add_argument("--early-stop", type=int,   default=6)
     p.add_argument("--augment",    action="store_true")
     p.add_argument("--resume",     default=None, help="Path to checkpoint to resume from")
+    p.add_argument("--extra-train-path", action="append", default=[],
+                   dest="extra_train_path",
+                   help="Extra training dirs merged with --train-path (repeat for multiple)")
     p.add_argument("--pgd-alpha",  type=float, default=0.0,
                    help="PGD step size (0=disabled). ε=0.01 fixed. Mixes 50%% adv per batch.")
     args = p.parse_args()

@@ -141,6 +141,29 @@ async def test_health():
     assert "models_loaded" in data
 
 
+# ── Explain endpoint ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_explain_classical_returns_501(auth_client, wav_bytes):
+    resp = await auth_client.post(
+        "/explain",
+        files={"file": ("test.wav", wav_bytes, "audio/wav")},
+        params={"model": "classical"},
+    )
+    assert resp.status_code == 501
+
+
+@pytest.mark.asyncio
+async def test_explain_missing_checkpoint_returns_503(auth_client, wav_bytes):
+    resp = await auth_client.post(
+        "/explain",
+        files={"file": ("test.wav", wav_bytes, "audio/wav")},
+        params={"model": "dsfnet"},
+    )
+    assert resp.status_code == 503
+
+
 # ── Synthesis / forensics (501 stub) ──────────────────────────────────────────
 
 

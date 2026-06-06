@@ -371,6 +371,38 @@ async def twilio_stream(websocket: WebSocket):
         await websocket.close(code=1011)
 
 
+@app.post("/explain", response_model=ExplanationResult, tags=["detection"])
+@limiter.limit("20/minute")
+async def explain(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    model: ModelType = ModelType.wav2vec2,
+    _user: str = Depends(get_current_user),
+):
+    """Return Integrated Gradients attribution for an uploaded audio file.
+
+    Shows which time segments (10ms bins) drove the model's fake/real decision.
+    Only SSL models (wav2vec2, wavlm_base_plus, wav2vec2_large, aasist, dsfnet*)
+    support attribution; classical model returns 501.
+    """
+    if model == ModelType.classical:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Classical model does not support attribution. Use an SSL model.",
+        )
+    path, _ = await save_upload(file)
+    background_tasks.add_task(pdpl_auto_delete, path)
+
+    explanation = _explain_ssl(path, str(model))
+    if explanation is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Model '{model}' checkpoint not found or attribution failed.",
+        )
+    return explanation
+
+
 @app.get("/models", tags=["ops"])
 async def models_list():
     """List all registered model keys and their checkpoint availability."""
