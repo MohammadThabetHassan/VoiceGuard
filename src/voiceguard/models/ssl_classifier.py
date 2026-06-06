@@ -233,6 +233,9 @@ def main():
     p.add_argument("--sr",         type=int,   default=16000)
     p.add_argument("--early-stop", type=int,   default=6)
     p.add_argument("--augment",    action="store_true")
+    p.add_argument("--resume",     default=None, help="Path to checkpoint to resume from")
+    p.add_argument("--pgd-alpha",  type=float, default=0.0,
+                   help="PGD step size (0=disabled). ε=0.01 fixed. Mixes 50%% adv per batch.")
     args = p.parse_args()
     train(args)
 

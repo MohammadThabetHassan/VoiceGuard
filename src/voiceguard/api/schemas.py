@@ -19,12 +19,32 @@ class ModelType(StrEnum):
     xls_r = "xls_r"
 
 
+class AttributionSegment(BaseModel):
+    start_s: float = Field(..., description="Segment start time in seconds")
+    end_s: float = Field(..., description="Segment end time in seconds")
+    importance: float = Field(..., ge=0.0, le=1.0, description="Normalised importance score")
+
+
+class ExplanationResult(BaseModel):
+    method: str = Field(..., description="Attribution method used")
+    baseline: str
+    target_class: int
+    frame_duration_ms: int
+    attribution_frames: list[float] = Field(
+        ..., description="Per-frame importance (10ms bins, normalised 0–1)"
+    )
+    top_segments: list[AttributionSegment] = Field(..., description="Top suspicious time windows")
+
+
 class DetectionResult(BaseModel):
     label: str = Field(..., description="'real' or 'fake'")
     confidence: float = Field(..., ge=0.0, le=1.0)
     model: ModelType
     latency_ms: float
     audio_hash: str = Field(..., description="SHA-256 of uploaded audio")
+    explanation: ExplanationResult | None = Field(
+        None, description="Integrated Gradients attribution (only when explain=true)"
+    )
 
 
 class SynthesisRequest(BaseModel):

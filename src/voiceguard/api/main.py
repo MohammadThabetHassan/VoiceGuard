@@ -55,6 +55,7 @@ from voiceguard.api.middleware import (
 )
 from voiceguard.api.schemas import (
     DetectionResult,
+    ExplanationResult,
     ForensicReportRequest,
     ForensicReportResult,
     HealthResponse,
@@ -148,6 +149,42 @@ def _detect_classical(path: str) -> tuple[str, float]:
     return detector.predict_features(features)
 
 
+def _explain_ssl(path: str, model_key: str) -> ExplanationResult | None:
+    """Run Integrated Gradients attribution on an SSL model."""
+    import torch
+    import torchaudio
+
+    from voiceguard.xai.ssl_explain import explain_waveform
+
+    model = registry.load(model_key)
+    if model is None:
+        return None
+    wav, sr = torchaudio.load(path)
+    if sr != 16000:
+        wav = torchaudio.functional.resample(wav, sr, 16000)
+    wav = wav.mean(0)  # (T,)
+    target_len = 48000
+    if wav.shape[-1] < target_len:
+        wav = torch.nn.functional.pad(wav, (0, target_len - wav.shape[-1]))
+    else:
+        wav = wav[..., :target_len]
+    wav = wav.unsqueeze(0)  # (1, T)
+
+    try:
+        raw = explain_waveform(model, wav)
+        from voiceguard.api.schemas import AttributionSegment
+        return ExplanationResult(
+            method=raw["method"],
+            baseline=raw["baseline"],
+            target_class=raw["target_class"],
+            frame_duration_ms=raw["frame_duration_ms"],
+            attribution_frames=raw["attribution_frames"],
+            top_segments=[AttributionSegment(**s) for s in raw["top_segments"]],
+        )
+    except Exception:  # noqa: S110
+        return None
+
+
 def _detect_ssl(path: str, model_key: str) -> tuple[str, float]:
     """Run SSL/DSFNet/AASIST detection via the registry."""
     import torch
@@ -208,12 +245,15 @@ async def detect(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     model: ModelType = ModelType.classical,
+    explain: bool = False,
     _user: str = Depends(get_current_user),
 ):
     """Upload an audio file and receive a deepfake detection result.
 
     Accepted formats: WAV, MP3, FLAC (max 100MB).
     Raw audio is auto-deleted after 60 seconds (PDPL compliance).
+    Pass `explain=true` to include Integrated Gradients attribution showing
+    which time segments drove the fake/real decision.
     """
     path, audio_hash = await save_upload(file)
     background_tasks.add_task(pdpl_auto_delete, path)
@@ -222,8 +262,10 @@ async def detect(
 
     if model == ModelType.classical:
         label, confidence = _detect_classical(path)
+        explanation = None
     else:
         label, confidence = _detect_ssl(path, str(model))
+        explanation = _explain_ssl(path, str(model)) if explain else None
 
     latency_ms = (time.perf_counter() - t0) * 1000
 
@@ -233,6 +275,7 @@ async def detect(
         model=model,
         latency_ms=round(latency_ms, 2),
         audio_hash=audio_hash,
+        explanation=explanation,
     )
 
 
