@@ -72,8 +72,7 @@ class AudioDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         path, label = self.samples[idx]
         wav = torch.load(path, weights_only=True)
-        if wav.ndim > 1:
-            wav = wav.squeeze(0)
+        wav = wav.reshape(-1)  # flatten (1,T) or (1,1,T) → (T,)
         T = wav.shape[0]
         if T < self.clip_samples:
             wav = nn.functional.pad(wav, (0, self.clip_samples - T))
@@ -119,6 +118,11 @@ def train(args: argparse.Namespace) -> None:
     model = SSLClassifier(args.model_name).to(device)
     print(f"Model: {args.model_name} | Trainable: {model.count_parameters():,}")
 
+    if args.resume:
+        ckpt = torch.load(args.resume, map_location=device, weights_only=True)
+        model.load_state_dict(ckpt.get("model_state", ckpt), strict=False)
+        print(f"Resumed from {args.resume}")
+
     augmentor = None
     if args.augment:
         from voiceguard.models.dsfnet import AudioAugment
@@ -159,6 +163,24 @@ def train(args: argparse.Namespace) -> None:
             if augmentor is not None:
                 augmentor.train()
                 wavs = augmentor(wavs.unsqueeze(1)).squeeze(1)
+
+            # PGD adversarial augmentation (50% adv mix when enabled)
+            if getattr(args, "pgd_alpha", 0.0) > 0:
+                eps = 0.01
+                alpha = args.pgd_alpha
+                delta = torch.zeros_like(wavs).uniform_(-eps, eps).requires_grad_(True)
+                for _ in range(3):
+                    loss_adv = criterion(model(wavs + delta), labels)
+                    loss_adv.backward()
+                    with torch.no_grad():
+                        delta.data = (delta.data + alpha * delta.grad.sign()).clamp(-eps, eps)
+                        delta.data = (wavs + delta.data).clamp(-1.0, 1.0) - wavs
+                    delta.grad.zero_()
+                adv_wavs = (wavs + delta.detach()).clamp(-1.0, 1.0)
+                wavs = torch.cat([wavs, adv_wavs])
+                labels = torch.cat([labels, labels])
+                optimizer.zero_grad()
+
             if use_amp and scaler:
                 with torch.amp.autocast("cuda"):
                     loss = criterion(model(wavs), labels)
