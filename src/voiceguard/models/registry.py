@@ -83,7 +83,7 @@ def _load_ssl(model_name: str) -> Callable[[Path], Any]:
         if cfg_path.exists():
             try:
                 name = json.loads(cfg_path.read_text()).get("model_name", model_name)
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
         model = SSLClassifier(name)
         ckpt = torch.load(path, map_location="cpu", weights_only=True)

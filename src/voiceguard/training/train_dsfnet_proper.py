@@ -298,7 +298,8 @@ def train(args: argparse.Namespace) -> None:
             try:
                 from voiceguard.models.checkpoint_manager import save_snapshot
                 save_snapshot(out_dir / "model_best.pt", args.model)
-            except Exception:  # noqa: S110\n                pass  # snapshot failure never interrupts training
+            except Exception:  # noqa: S110
+                pass  # snapshot failure never interrupts training
         else:
             patience_counter += 1
 

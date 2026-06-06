@@ -193,7 +193,7 @@ def train(args: argparse.Namespace) -> None:
             try:
                 from voiceguard.models.checkpoint_manager import save_snapshot
                 save_snapshot(out_dir / "model_best.pt", args.model_name.split("/")[-1])
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
         else:
             patience += 1
