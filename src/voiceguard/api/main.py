@@ -21,7 +21,6 @@ import time
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 from fastapi import (
@@ -68,28 +67,15 @@ from voiceguard.api.schemas import (
 
 __version__ = "0.1.0"
 
-# ── Lazy model registry ────────────────────────────────────────────────────────
+# ── Model registry ─────────────────────────────────────────────────────────────
 
-_models: dict[str, Any] = {}
-
-
-def _get_classical_model():
-    if "classical" not in _models:
-        from voiceguard.models.classical import ClassicalDetector
-
-        model_path = os.environ.get("CLASSICAL_MODEL_PATH")
-        if model_path and Path(model_path).exists():
-            _models["classical"] = ClassicalDetector.from_file(model_path)
-        else:
-            _models["classical"] = None
-    return _models["classical"]
+from voiceguard.models.registry import registry  # noqa: E402
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _get_classical_model()
+    registry.preload()  # loads any model whose env-var is set at startup
     yield
-    _models.clear()
 
 
 # ── Application ────────────────────────────────────────────────────────────────
@@ -156,10 +142,45 @@ def _detect_classical(path: str) -> tuple[str, float]:
     data /= mx
     features = extract_features(data, sr)
 
-    detector = _get_classical_model()
+    detector = registry.load("classical")
     if detector is None:
         return "real", 0.5
     return detector.predict_features(features)
+
+
+def _detect_ssl(path: str, model_key: str) -> tuple[str, float]:
+    """Run SSL/DSFNet/AASIST detection via the registry."""
+    import torch
+    import torchaudio
+
+    model = registry.load(model_key)
+    if model is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Model '{model_key}' checkpoint not found. Set {model_key.upper()}_PATH.",
+        )
+    wav, sr = torchaudio.load(path)
+    if sr != 16000:
+        wav = torchaudio.functional.resample(wav, sr, 16000)
+    wav = wav.mean(0, keepdim=True)  # mono (1, T)
+    target_len = 48000
+    if wav.shape[-1] < target_len:
+        wav = torch.nn.functional.pad(wav, (0, target_len - wav.shape[-1]))
+    else:
+        wav = wav[..., :target_len]
+
+    with torch.no_grad():
+        # SSL models expect (B, T); CNN models expect (B, 1, T)
+        if model_key in ("wav2vec2", "wavlm_base_plus", "wavlm_large", "wav2vec2_large", "xls_r"):
+            inp = wav.squeeze(0).unsqueeze(0)  # (1, T)
+        else:
+            inp = wav.unsqueeze(0)  # (1, 1, T)
+        logits = model(inp)
+        probs = torch.softmax(logits, dim=-1)[0]
+    fake_prob = float(probs[1])
+    label = "fake" if fake_prob >= 0.5 else "real"
+    confidence = fake_prob if label == "fake" else float(probs[0])
+    return label, round(confidence, 4)
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -202,10 +223,7 @@ async def detect(
     if model == ModelType.classical:
         label, confidence = _detect_classical(path)
     else:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=f"Model '{model}' requires GPU training. Use 'classical' for now.",
-        )
+        label, confidence = _detect_ssl(path, str(model))
 
     latency_ms = (time.perf_counter() - t0) * 1000
 
@@ -310,16 +328,19 @@ async def twilio_stream(websocket: WebSocket):
         await websocket.close(code=1011)
 
 
+@app.get("/models", tags=["ops"])
+async def models_list():
+    """List all registered model keys and their checkpoint availability."""
+    return registry.status()
+
+
 @app.get("/health", response_model=HealthResponse, tags=["ops"])
 async def health():
+    status_map = registry.status()
     return HealthResponse(
         status="ok",
         version=__version__,
-        models_loaded={
-            "classical": _get_classical_model() is not None,
-            "dsfnet": False,
-            "wav2vec2": False,
-        },
+        models_loaded={k: v["available"] for k, v in status_map.items()},
     )
 
 
@@ -339,7 +360,7 @@ def _detect_classical_array(audio: np.ndarray, sr: int) -> tuple[str, float]:
     from voiceguard.features.extractor import extract_features
 
     features = extract_features(audio, sr)
-    detector = _get_classical_model()
+    detector = registry.load("classical")
     if detector is None:
         return "real", 0.5
     return detector.predict_features(features)

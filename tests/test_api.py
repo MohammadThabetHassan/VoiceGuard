@@ -118,13 +118,13 @@ async def test_detect_model_field(auth_client, wav_bytes):
 
 
 @pytest.mark.asyncio
-async def test_detect_unimplemented_model(auth_client, wav_bytes):
+async def test_detect_model_without_checkpoint(auth_client, wav_bytes):
     resp = await auth_client.post(
         "/detect",
         files={"file": ("test.wav", wav_bytes, "audio/wav")},
         params={"model": "dsfnet"},
     )
-    assert resp.status_code == 501
+    assert resp.status_code == 503
 
 
 # ── Health test ────────────────────────────────────────────────────────────────

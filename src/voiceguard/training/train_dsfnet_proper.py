@@ -295,6 +295,10 @@ def train(args: argparse.Namespace) -> None:
                 "metrics": metrics,
             }
             torch.save(best_ckpt_data, out_dir / "model_best.pt")
+            try:
+                from voiceguard.models.checkpoint_manager import save_snapshot
+                save_snapshot(out_dir / "model_best.pt", args.model)
+            except Exception:  # noqa: S110\n                pass  # snapshot failure never interrupts training
         else:
             patience_counter += 1
 

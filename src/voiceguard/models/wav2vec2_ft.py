@@ -235,6 +235,8 @@ def train(args: argparse.Namespace) -> None:
             patience_counter = 0
             torch.save({"epoch": epoch, "model_state": model.state_dict(),
                         "metrics": metrics}, out_dir / "model_best.pt")
+            from voiceguard.models.checkpoint_manager import save_snapshot
+            save_snapshot(out_dir / "model_best.pt", "wav2vec2")
         else:
             patience_counter += 1
 

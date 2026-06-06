@@ -190,6 +190,11 @@ def train(args: argparse.Namespace) -> None:
             )
             torch.save({"epoch": epoch, "model_state": model.state_dict(),
                         "best_val_eer": best_eer, "metrics": m}, out_dir / "model_best.pt")
+            try:
+                from voiceguard.models.checkpoint_manager import save_snapshot
+                save_snapshot(out_dir / "model_best.pt", args.model_name.split("/")[-1])
+            except Exception:
+                pass
         else:
             patience += 1
 

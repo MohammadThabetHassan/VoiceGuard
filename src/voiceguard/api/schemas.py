@@ -10,7 +10,13 @@ from pydantic import BaseModel, Field
 class ModelType(StrEnum):
     classical = "classical"
     dsfnet = "dsfnet"
+    dsfnet_v2 = "dsfnet_v2"
+    aasist = "aasist"
     wav2vec2 = "wav2vec2"
+    wavlm_base_plus = "wavlm_base_plus"
+    wavlm_large = "wavlm_large"
+    wav2vec2_large = "wav2vec2_large"
+    xls_r = "xls_r"
 
 
 class DetectionResult(BaseModel):
