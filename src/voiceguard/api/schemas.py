@@ -17,6 +17,7 @@ class ModelType(StrEnum):
     wavlm_large = "wavlm_large"
     wav2vec2_large = "wav2vec2_large"
     xls_r = "xls_r"
+    xls_r_aasist = "xls_r_aasist"
 
 
 class AttributionSegment(BaseModel):

@@ -12,6 +12,9 @@ EMAIL="abdullahshammari796@gmail.com"   # Let's Encrypt expiry notices; change i
 REPO_URL="https://github.com/MohammadThabetHassan/VoiceGuard.git"
 REPO_DIR="/home/$USER/voiceguard"
 DIST_DIR="/var/www/voiceguard/dist"
+# Production detector checkpoint (XLS-R + AASIST, ~1.2GB; NOT in the repo).
+# Copy it onto this host and set MODEL_CKPT to its path before running.
+MODEL_CKPT="/home/$USER/voiceguard/models/xls_r_aasist.pt"
 
 echo "=== VoiceGuard Server Setup (domain: $DOMAIN) ==="
 
@@ -65,7 +68,11 @@ sudo sed -i \
     -e "s/YOUR_USERNAME/$USER/g" \
     -e "s/YOUR_DOMAIN/$DOMAIN/g" \
     -e "s|SECRET_KEY=change-me-openssl-rand-hex-32|SECRET_KEY=$SECRET|" \
+    -e "s|XLS_R_AASIST_PATH=.*|XLS_R_AASIST_PATH=$MODEL_CKPT\"|" \
     /etc/systemd/system/voiceguard.service
+if [ ! -f "$MODEL_CKPT" ]; then
+    echo "WARNING: model checkpoint not found at $MODEL_CKPT — /detect will 503 until it exists."
+fi
 sudo systemctl daemon-reload
 sudo systemctl enable voiceguard
 sudo systemctl restart voiceguard

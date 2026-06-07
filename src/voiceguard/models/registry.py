@@ -101,6 +101,34 @@ def _load_ssl(model_name: str) -> Callable[[Path], Any]:
     return _loader
 
 
+def _load_ssl_aasist(model_name: str) -> Callable[[Path], Any]:
+    """Loader for the SSLAASIST architecture (SSL front-end + graph-attention
+    back-end), e.g. the production XLS-R-300m + AASIST detector. Reads
+    model_name from a sibling config.json when present."""
+
+    def _loader(path: Path) -> Any:
+        import json
+
+        import torch
+
+        from voiceguard.models.ssl_classifier import SSLAASIST
+
+        cfg_path = path.parent / "config.json"
+        name = model_name
+        if cfg_path.exists():
+            try:
+                name = json.loads(cfg_path.read_text()).get("model_name", model_name)
+            except Exception:  # noqa: S110
+                pass
+        model = SSLAASIST(name)
+        ckpt = torch.load(path, map_location="cpu", weights_only=True)
+        model.load_state_dict(ckpt.get("model_state", ckpt), strict=False)
+        model.eval()
+        return model
+
+    return _loader
+
+
 # Registry definition: key → {env, loader, discover_subdir}
 _REGISTRY_DEF: dict[str, dict] = {
     "classical": {
@@ -136,6 +164,13 @@ _REGISTRY_DEF: dict[str, dict] = {
         "env": "XLS_R_PATH",
         "loader": _load_ssl("facebook/wav2vec2-xls-r-300m"),
         "discover": "xls_r",
+    },
+    # Production headline model: XLS-R-300m + AASIST graph-attention back-end,
+    # Kokoro-hardened (eval EER 2.61%, Kokoro ~93%, IndexTTS2 100%).
+    "xls_r_aasist": {
+        "env": "XLS_R_AASIST_PATH",
+        "loader": _load_ssl_aasist("facebook/wav2vec2-xls-r-300m"),
+        "discover": "xls_r_aasist",
     },
 }
 

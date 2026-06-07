@@ -232,7 +232,14 @@ def _detect_ssl(path: str, model_key: str) -> tuple[str, float]:
 
     with torch.no_grad():
         # SSL models expect (B, T); CNN models expect (B, 1, T)
-        if model_key in ("wav2vec2", "wavlm_base_plus", "wavlm_large", "wav2vec2_large", "xls_r"):
+        if model_key in (
+            "wav2vec2",
+            "wavlm_base_plus",
+            "wavlm_large",
+            "wav2vec2_large",
+            "xls_r",
+            "xls_r_aasist",
+        ):
             inp = wav.squeeze(0).unsqueeze(0)  # (1, T)
         else:
             inp = wav.unsqueeze(0)  # (1, 1, T)
@@ -268,7 +275,7 @@ async def detect(
     request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    model: ModelType = ModelType.classical,
+    model: ModelType = ModelType.xls_r_aasist,
     explain: bool = False,
     _user: str = Depends(get_current_user),
 ):

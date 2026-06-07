@@ -29,6 +29,11 @@ Environment="SECRET_KEY=change-me-openssl-rand-hex-32"
 # Used by the backend CORS allow-list (harmless behind same-origin Nginx, but
 # keeps direct-to-API requests working too). Replaced by setup.sh.
 Environment="VOICEGUARD_DOMAIN=YOUR_DOMAIN"
+# Production detector checkpoint (XLS-R + AASIST, Kokoro-hardened). This is the
+# default model for /detect. The .pt is ~1.2GB and is NOT in the repo — copy it
+# onto the host and point this at it, else /detect returns 503 (no model). Path
+# replaced by setup.sh from MODEL_CKPT.
+Environment="XLS_R_AASIST_PATH=/home/YOUR_USERNAME/voiceguard/models/xls_r_aasist.pt"
 ExecStart=/home/YOUR_USERNAME/voiceguard/venv/bin/uvicorn voiceguard.api.main:app \
     --host 127.0.0.1 \
     --port 8000 \
