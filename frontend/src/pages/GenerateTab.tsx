@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { synthesize } from '../services/synthesisService'
+import { ApiError } from '../config/apiConfig'
 
 export default function GenerateTab() {
   const [text, setText] = useState('')
@@ -13,33 +15,21 @@ export default function GenerateTab() {
     setError(null)
     setAudioUrl(null)
 
-    const token = localStorage.getItem('vg_token') || ''
     try {
-      const resp = await fetch('/synthesize', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ text }),
-      })
-      if (resp.status === 501) {
-        setError(
-          'Speech synthesis requires GPU (Coqui XTTS v2). ' +
-          'Not available on the current CPU instance. Run the GPU training plan first.'
-        )
-        return
-      }
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}))
-        setError(body.detail || `Error ${resp.status}`)
-        return
-      }
-      const data = await resp.json()
+      const data = await synthesize(text)
       setAudioUrl(data.audio_url)
-      setWatermarkId(data.watermark_id)
-    } catch {
-      setError('Network error')
+      setWatermarkId(data.watermark_id ?? null)
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setError(
+          e.status === 501
+            ? 'Speech synthesis requires GPU (Coqui XTTS v2). ' +
+                'Not available on the current CPU instance. Run the GPU training plan first.'
+            : e.message,
+        )
+      } else {
+        setError('Network error — is the API running? (set it via the ⚙ button)')
+      }
     } finally {
       setLoading(false)
     }

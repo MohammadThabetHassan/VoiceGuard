@@ -1,14 +1,6 @@
 import { useState, useRef } from 'react'
-
-type DetectionResult = {
-  label: 'real' | 'fake'
-  confidence: number
-  model: string
-  latency_ms: number
-  audio_hash: string
-}
-
-const API = '/detect'
+import { detectAudio, type DetectionResult } from '../services/detectionService'
+import { ApiError } from '../config/apiConfig'
 
 function ConfidenceGauge({ confidence, label }: { confidence: number; label: string }) {
   const pct = Math.round(confidence * 100)
@@ -38,30 +30,15 @@ export default function DetectTab() {
     setError(null)
     setResult(null)
 
-    const formData = new FormData()
-    formData.append('file', file)
-
-    const token = localStorage.getItem('vg_token') || ''
-
     try {
-      const resp = await fetch(API, {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
-      })
-      if (resp.status === 401) {
-        setError('Not authenticated. Please log in first.')
-        return
-      }
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}))
-        setError(body.detail || `Error ${resp.status}`)
-        return
-      }
-      const data: DetectionResult = await resp.json()
+      const data = await detectAudio(file)
       setResult(data)
-    } catch {
-      setError('Network error — is the API running?')
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setError(e.status === 401 ? 'Not authenticated. Please log in first.' : e.message)
+      } else {
+        setError('Network error — is the API running? (set it via the ⚙ button)')
+      }
     } finally {
       setLoading(false)
     }

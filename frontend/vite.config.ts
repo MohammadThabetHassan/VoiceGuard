@@ -2,6 +2,10 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  // GitHub Pages serves project sites under /<repo>/ (case-sensitive). The repo
+  // is "VoiceGuard"; the deploy workflow sets VITE_BASE_PATH explicitly. For
+  // local dev the default '/' is used.
+  base: process.env.VITE_BASE_PATH || '/',
   plugins: [react()],
   server: {
     port: 5173,

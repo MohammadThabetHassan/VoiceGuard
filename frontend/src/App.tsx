@@ -2,6 +2,7 @@ import { useState } from 'react'
 import DetectTab from './pages/DetectTab'
 import GenerateTab from './pages/GenerateTab'
 import ResultsTab from './pages/ResultsTab'
+import ApiSettings from './components/ApiSettings'
 
 type Tab = 'detect' | 'generate' | 'results'
 
@@ -67,6 +68,9 @@ export default function App() {
           <span>Apache 2.0 License</span>
         </div>
       </footer>
+
+      {/* Floating API settings (gear button, always visible) */}
+      <ApiSettings />
     </div>
   )
 }
