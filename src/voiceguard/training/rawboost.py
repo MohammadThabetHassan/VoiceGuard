@@ -17,6 +17,7 @@ an in-distribution EER lever (per-codec EER is already 2-3%).
 Applied per-sample on CPU inside the Dataset (random algorithm per call).
 Reference: github.com/TakHemlata/RawBoost-antispoofing (Apache-2.0).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -37,8 +38,9 @@ def _norm_wav(x: np.ndarray, always: bool) -> np.ndarray:
     return x
 
 
-def _gen_notch_coeffs(n_bands, min_f, max_f, min_bw, max_bw,
-                      min_coeff, max_coeff, min_g, max_g, fs) -> np.ndarray:
+def _gen_notch_coeffs(
+    n_bands, min_f, max_f, min_bw, max_bw, min_coeff, max_coeff, min_g, max_g, fs
+) -> np.ndarray:
     b = np.array([1.0])
     for _ in range(n_bands):
         fc = _rand_range(min_f, max_f, False)
@@ -53,8 +55,7 @@ def _gen_notch_coeffs(n_bands, min_f, max_f, min_bw, max_bw,
         # NOTCH (band-stop): keep everything except [f1,f2]. firwin's default
         # pass_zero=True gives passbands [0,f1] & [f2,nyq]. Using pass_zero=False
         # (bandpass) here annihilates the signal (corr~0) — the original bug.
-        fir = signal.firwin(int(c), [float(f1), float(f2)],
-                            window="hamming", fs=fs, pass_zero=True)
+        fir = signal.firwin(int(c), [float(f1), float(f2)], window="hamming", fs=fs, pass_zero=True)
         b = np.convolve(fir, b)
     g = _rand_range(min_g, max_g, False)
     _, h = signal.freqz(b, 1, fs=fs)
@@ -68,17 +69,31 @@ def _filter_fir(x: np.ndarray, b: np.ndarray) -> np.ndarray:
     n = b.shape[0] + 1
     xpad = np.pad(x, (0, n), "constant")
     y = signal.lfilter(b, [1.0], xpad)
-    return y[int(n / 2): int(y.shape[0] - n / 2)]
+    return y[int(n / 2) : int(y.shape[0] - n / 2)]
 
 
-def _lnl_convolutive_noise(x, n_f, n_bands, min_f, max_f, min_bw, max_bw,
-                           min_coeff, max_coeff, min_g, max_g,
-                           min_bias, max_bias, fs) -> np.ndarray:
+def _lnl_convolutive_noise(
+    x,
+    n_f,
+    n_bands,
+    min_f,
+    max_f,
+    min_bw,
+    max_bw,
+    min_coeff,
+    max_coeff,
+    min_g,
+    max_g,
+    min_bias,
+    max_bias,
+    fs,
+) -> np.ndarray:
     y = np.zeros_like(x)
     for i in range(n_f):
         g_lo, g_hi = (min_g - min_bias, max_g - max_bias) if i == 1 else (min_g, max_g)
-        b = _gen_notch_coeffs(n_bands, min_f, max_f, min_bw, max_bw,
-                              min_coeff, max_coeff, g_lo, g_hi, fs)
+        b = _gen_notch_coeffs(
+            n_bands, min_f, max_f, min_bw, max_bw, min_coeff, max_coeff, g_lo, g_hi, fs
+        )
         y = y + _filter_fir(np.power(x, (i + 1)), b)
     y = y - np.mean(y)
     return _norm_wav(y, False)
@@ -95,11 +110,25 @@ def _isd_additive_noise(x, p_pct, g_sd) -> np.ndarray:
     return _norm_wav(y, False)
 
 
-def _ssi_additive_noise(x, snr_min, snr_max, n_bands, min_f, max_f, min_bw, max_bw,
-                        min_coeff, max_coeff, min_g, max_g, fs) -> np.ndarray:
+def _ssi_additive_noise(
+    x,
+    snr_min,
+    snr_max,
+    n_bands,
+    min_f,
+    max_f,
+    min_bw,
+    max_bw,
+    min_coeff,
+    max_coeff,
+    min_g,
+    max_g,
+    fs,
+) -> np.ndarray:
     noise = np.random.normal(0, 1, x.shape[0])
-    b = _gen_notch_coeffs(n_bands, min_f, max_f, min_bw, max_bw,
-                          min_coeff, max_coeff, min_g, max_g, fs)
+    b = _gen_notch_coeffs(
+        n_bands, min_f, max_f, min_bw, max_bw, min_coeff, max_coeff, min_g, max_g, fs
+    )
     noise = _norm_wav(_filter_fir(noise, b), True)
     snr = _rand_range(snr_min, snr_max, False)
     nn = np.linalg.norm(noise, 2)
@@ -111,15 +140,26 @@ def _ssi_additive_noise(x, snr_min, snr_max, n_bands, min_f, max_f, min_bw, max_
 
 # Default hyperparameters from the reference RawBoost LA configuration.
 _DEFAULTS = dict(
-    n_bands=5, min_f=20, max_f=8000, min_bw=100, max_bw=1000,
-    min_coeff=10, max_coeff=100, min_g=0, max_g=0,
-    min_bias=5, max_bias=20, n_f=5, p_pct=10, g_sd=2,
-    snr_min=10, snr_max=40,
+    n_bands=5,
+    min_f=20,
+    max_f=8000,
+    min_bw=100,
+    max_bw=1000,
+    min_coeff=10,
+    max_coeff=100,
+    min_g=0,
+    max_g=0,
+    min_bias=5,
+    max_bias=20,
+    n_f=5,
+    p_pct=10,
+    g_sd=2,
+    snr_min=10,
+    snr_max=40,
 )
 
 
-def apply_rawboost(x: np.ndarray, fs: int = 16000, algo: int = 4,
-                   **kw) -> np.ndarray:
+def apply_rawboost(x: np.ndarray, fs: int = 16000, algo: int = 4, **kw) -> np.ndarray:
     """Apply a RawBoost algorithm to a 1-D float waveform.
 
     algo: 1=LnL conv, 2=ISD, 3=SSI, 4=series(1->2->3), 5=series(1->2),
@@ -131,17 +171,42 @@ def apply_rawboost(x: np.ndarray, fs: int = 16000, algo: int = 4,
         algo = int(np.random.choice([1, 2, 3, 4, 5]))
 
     def lnl(s):
-        return _lnl_convolutive_noise(s, p["n_f"], p["n_bands"], p["min_f"], p["max_f"],
-                                      p["min_bw"], p["max_bw"], p["min_coeff"], p["max_coeff"],
-                                      p["min_g"], p["max_g"], p["min_bias"], p["max_bias"], fs)
+        return _lnl_convolutive_noise(
+            s,
+            p["n_f"],
+            p["n_bands"],
+            p["min_f"],
+            p["max_f"],
+            p["min_bw"],
+            p["max_bw"],
+            p["min_coeff"],
+            p["max_coeff"],
+            p["min_g"],
+            p["max_g"],
+            p["min_bias"],
+            p["max_bias"],
+            fs,
+        )
 
     def isd(s):
         return _isd_additive_noise(s, p["p_pct"], p["g_sd"])
 
     def ssi(s):
-        return _ssi_additive_noise(s, p["snr_min"], p["snr_max"], p["n_bands"], p["min_f"],
-                                   p["max_f"], p["min_bw"], p["max_bw"], p["min_coeff"],
-                                   p["max_coeff"], p["min_g"], p["max_g"], fs)
+        return _ssi_additive_noise(
+            s,
+            p["snr_min"],
+            p["snr_max"],
+            p["n_bands"],
+            p["min_f"],
+            p["max_f"],
+            p["min_bw"],
+            p["max_bw"],
+            p["min_coeff"],
+            p["max_coeff"],
+            p["min_g"],
+            p["max_g"],
+            fs,
+        )
 
     if algo == 1:
         y = lnl(x)
@@ -177,6 +242,7 @@ class RawBoost:
     def __call__(self, wav):
         """wav: 1-D torch.Tensor or np.ndarray (float). Returns same type."""
         import torch
+
         is_tensor = isinstance(wav, torch.Tensor)
         if np.random.rand() > self.p:
             return wav

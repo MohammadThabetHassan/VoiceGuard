@@ -22,7 +22,7 @@ class MFM(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         C = x.size(1)
-        return torch.max(x[:, :C // 2], x[:, C // 2:])
+        return torch.max(x[:, : C // 2], x[:, C // 2 :])
 
 
 class LCNNBlock(nn.Module):
@@ -68,7 +68,7 @@ class PositionalEncoding2D(nn.Module):
         freq_idx = torch.arange(F, device=x.device)
         time_idx = torch.arange(T, device=x.device)
         freq_pos = self.freq_embed(freq_idx).unsqueeze(1)  # (F, 1, D)
-        time_pos = self.time_embed(time_idx).unsqueeze(0)   # (1, T, D)
+        time_pos = self.time_embed(time_idx).unsqueeze(0)  # (1, T, D)
         return x.permute(0, 2, 3, 1) + freq_pos + time_pos  # (B, F, T, D)
 
 
@@ -77,8 +77,7 @@ class GraphAttentionLayer(nn.Module):
 
     def __init__(self, d_model: int, n_heads: int = 4, dropout: float = 0.1) -> None:
         super().__init__()
-        self.attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout,
-                                          batch_first=True)
+        self.attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
         self.norm1 = nn.LayerNorm(d_model)
         self.ffn = nn.Sequential(
             nn.Linear(d_model, d_model * 4),
@@ -155,10 +154,9 @@ class AASIST(nn.Module):
 
         self.proj = nn.Linear(128, d_model)
 
-        self.graph_layers = nn.ModuleList([
-            GraphAttentionLayer(d_model, n_heads, dropout)
-            for _ in range(n_graph_layers)
-        ])
+        self.graph_layers = nn.ModuleList(
+            [GraphAttentionLayer(d_model, n_heads, dropout) for _ in range(n_graph_layers)]
+        )
 
         self.cls_token = nn.Parameter(torch.randn(1, 1, d_model) * 0.02)
 
@@ -174,6 +172,7 @@ class AASIST(nn.Module):
 
         if augment:
             from .dsfnet import AudioAugment, SpecAugment
+
             self.audio_aug = AudioAugment(sample_rate=sr)
             self.spec_aug = SpecAugment(freq_mask=8, time_mask=30)
 
@@ -181,12 +180,12 @@ class AASIST(nn.Module):
         if waveform.dtype != torch.float32:
             waveform = waveform.float()
 
-        if self.augment and hasattr(self, 'audio_aug'):
+        if self.augment and hasattr(self, "audio_aug"):
             waveform = self.audio_aug(waveform)
 
         # Spectrogram path
         mel = self.to_db(self.mel_transform(waveform))  # (B, 1, 80, T')
-        if self.augment and hasattr(self, 'spec_aug'):
+        if self.augment and hasattr(self, "spec_aug"):
             mel = self.spec_aug(mel)
 
         feat_spec = self.spec_enc(mel)  # (B, 256, F', T')
@@ -222,5 +221,4 @@ class AASIST(nn.Module):
 
 
 def AASISTLarge(sr: int = 16000, augment: bool = False) -> AASIST:  # noqa: N802
-    return AASIST(sr=sr, d_model=384, n_heads=6, n_graph_layers=3,
-                  dropout=0.2, augment=augment)
+    return AASIST(sr=sr, d_model=384, n_heads=6, n_graph_layers=3, dropout=0.2, augment=augment)

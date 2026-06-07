@@ -11,6 +11,7 @@ Usage::
     # result["top_segments"] — list of {"start_s", "end_s", "importance"} dicts
     # result["attribution"]  — list of floats, one per 10ms frame
 """
+
 from __future__ import annotations
 
 import math
@@ -20,14 +21,14 @@ import numpy as np
 import torch
 
 _SR = 16000
-_FRAME_MS = 10          # Attribution granularity: 10 ms bins
-_FRAME_SAMPLES = _SR * _FRAME_MS // 1000   # 160 samples
-_IG_STEPS = 25          # Integration steps — fast enough for an API call
+_FRAME_MS = 10  # Attribution granularity: 10 ms bins
+_FRAME_SAMPLES = _SR * _FRAME_MS // 1000  # 160 samples
+_IG_STEPS = 25  # Integration steps — fast enough for an API call
 
 
 def _integrated_gradients(
     model: Any,
-    waveform: torch.Tensor,   # (1, T)
+    waveform: torch.Tensor,  # (1, T)
     target_class: int,
     n_steps: int = _IG_STEPS,
     baseline: torch.Tensor | None = None,
@@ -44,7 +45,7 @@ def _integrated_gradients(
     interp = interp.requires_grad_(True)
 
     # Forward all steps in one batch
-    logits = model(interp)                         # (S, 2)
+    logits = model(interp)  # (S, 2)
     scores = torch.softmax(logits, dim=-1)[:, target_class]  # (S,)
     scores.sum().backward()
 
@@ -71,8 +72,8 @@ def _to_frame_attribution(ig: torch.Tensor, T: int) -> np.ndarray:
 
 def explain_waveform(
     model: Any,
-    waveform: torch.Tensor,    # (1, T) on any device
-    target_class: int = 1,     # 1 = fake
+    waveform: torch.Tensor,  # (1, T) on any device
+    target_class: int = 1,  # 1 = fake
     top_k: int = 5,
     n_steps: int = _IG_STEPS,
 ) -> dict:
@@ -118,19 +119,21 @@ def explain_waveform(
             hi += 1
         for i in range(lo, hi + 1):
             used.add(i)
-        segments.append({
-            "start_s": round(lo * _FRAME_MS / 1000, 3),
-            "end_s":   round((hi + 1) * _FRAME_MS / 1000, 3),
-            "importance": round(float(frames[lo: hi + 1].mean()), 4),
-        })
+        segments.append(
+            {
+                "start_s": round(lo * _FRAME_MS / 1000, 3),
+                "end_s": round((hi + 1) * _FRAME_MS / 1000, 3),
+                "importance": round(float(frames[lo : hi + 1].mean()), 4),
+            }
+        )
 
     segments.sort(key=lambda s: s["importance"], reverse=True)
 
     return {
-        "method":            "integrated_gradients",
-        "baseline":          "zeros",
-        "target_class":      target_class,
+        "method": "integrated_gradients",
+        "baseline": "zeros",
+        "target_class": target_class,
         "frame_duration_ms": _FRAME_MS,
         "attribution_frames": frames.tolist(),
-        "top_segments":      segments[:top_k],
+        "top_segments": segments[:top_k],
     }

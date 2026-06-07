@@ -26,8 +26,9 @@ import torchaudio.transforms as audio_tx
 class ConvBlock1D(nn.Module):
     """Conv1d → BatchNorm1d → ReLU → MaxPool1d."""
 
-    def __init__(self, in_ch: int, out_ch: int, kernel: int = 9, pool: int = 4,
-                 dropout: float = 0.0) -> None:
+    def __init__(
+        self, in_ch: int, out_ch: int, kernel: int = 9, pool: int = 4, dropout: float = 0.0
+    ) -> None:
         super().__init__()
         layers: list[nn.Module] = [
             nn.Conv1d(in_ch, out_ch, kernel_size=kernel, padding=kernel // 2),
@@ -140,7 +141,7 @@ class BidirectionalCrossAttention(nn.Module):
         q = q.view(B, -1, self.n_heads, self.head_dim).transpose(1, 2)
         k = k.view(B, -1, self.n_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, -1, self.n_heads, self.head_dim).transpose(1, 2)
-        scores = torch.matmul(q, k.transpose(-2, -1)) / (self.head_dim ** 0.5)
+        scores = torch.matmul(q, k.transpose(-2, -1)) / (self.head_dim**0.5)
         attn = torch.softmax(scores, dim=-1)
         out = torch.matmul(attn, v)
         out = out.transpose(1, 2).contiguous().view(B, -1, self.d_model)
@@ -162,8 +163,9 @@ class BidirectionalCrossAttention(nn.Module):
 class ClassificationHead(nn.Module):
     """MLP classifier with configurable hidden dims."""
 
-    def __init__(self, dims: tuple[int, ...] = (1024, 512, 256, 128, 2),
-                 dropout: float = 0.3) -> None:
+    def __init__(
+        self, dims: tuple[int, ...] = (1024, 512, 256, 128, 2), dropout: float = 0.3
+    ) -> None:
         super().__init__()
         layers = []
         for i in range(len(dims) - 2):
@@ -204,7 +206,7 @@ class AudioAugment(nn.Module):
         rir = torch.randn(rir_len)
         t = torch.arange(rir_len, dtype=torch.float32)
         rir = rir * torch.exp(-t / (sample_rate * 0.05))
-        self.register_buffer('rir_base', rir / rir.norm())
+        self.register_buffer("rir_base", rir / rir.norm())
 
         # Precompute bandpass kernels once (HP ~300 Hz + LP ~3400 Hz).
         # Registered as buffers so they move to GPU with the module.
@@ -212,13 +214,13 @@ class AudioAugment(nn.Module):
         sigma_hp = sample_rate / (2 * math.pi * 300.0)
         t_hp = torch.arange(-(hp_len // 2), hp_len // 2 + 1, dtype=torch.float32)
         lp_hp = torch.exp(-0.5 * (t_hp / sigma_hp).pow(2))
-        self.register_buffer('hp_kernel', (lp_hp / lp_hp.sum()).view(1, 1, -1))
+        self.register_buffer("hp_kernel", (lp_hp / lp_hp.sum()).view(1, 1, -1))
 
         lp_len = 63
         sigma_lp = sample_rate / (2 * math.pi * 3400.0)
         t_lp = torch.arange(-(lp_len // 2), lp_len // 2 + 1, dtype=torch.float32)
         lp_3400 = torch.exp(-0.5 * (t_lp / sigma_lp).pow(2))
-        self.register_buffer('lp3400_kernel', (lp_3400 / lp_3400.sum()).view(1, 1, -1))
+        self.register_buffer("lp3400_kernel", (lp_3400 / lp_3400.sum()).view(1, 1, -1))
 
     @staticmethod
     def _mulaw_compress(x: torch.Tensor, mu: float = 255.0) -> torch.Tensor:
@@ -257,7 +259,7 @@ class AudioAugment(nn.Module):
             mask_len = int(T * 0.1)
             for i in range(B):
                 start = torch.randint(0, max(1, T - mask_len), (1,)).item()
-                x[i, :, start:start + mask_len] = 0.0
+                x[i, :, start : start + mask_len] = 0.0
 
             # All stochastic augmentations below apply independently per sample.
             # Per-sample gates avoid the bias where a whole batch is either fully
@@ -268,8 +270,8 @@ class AudioAugment(nn.Module):
                 if torch.rand(1).item() < 0.5:
                     rir = self.rir_base * torch.empty(1).uniform_(0.3, 1.0).item()
                     rir = rir.to(x.device)
-                    xi = F.pad(x[i:i+1], (len(rir) // 2, len(rir) // 2))
-                    x[i:i+1] = F.conv1d(xi, rir.view(1, 1, -1), padding=0)[..., :T]
+                    xi = F.pad(x[i : i + 1], (len(rir) // 2, len(rir) // 2))
+                    x[i : i + 1] = F.conv1d(xi, rir.view(1, 1, -1), padding=0)[..., :T]
 
             # µ-law companding per-sample, p=0.5 (G.711 telephone codec simulation)
             for i in range(B):
@@ -288,21 +290,22 @@ class AudioAugment(nn.Module):
             # HP at ~300 Hz (Gaussian LP subtraction) + LP at 3400 Hz.
             for i in range(B):
                 if torch.rand(1).item() < 0.3:
-                    xi = x[i:i+1]
+                    xi = x[i : i + 1]
                     # High-pass at 300 Hz using precomputed registered buffer
                     x_lp = F.conv1d(xi, self.hp_kernel, padding=self.hp_kernel.shape[-1] // 2)
                     xi = xi - x_lp
                     # Low-pass at 3400 Hz using precomputed registered buffer
                     xi = F.conv1d(xi, self.lp3400_kernel, padding=self.lp3400_kernel.shape[-1] // 2)
-                    x[i:i+1] = xi
+                    x[i : i + 1] = xi
 
             # Packet loss per-sample, p=0.2
             for i in range(B):
                 if torch.rand(1).item() < 0.2:
-                    loss_len = int(torch.randint(
-                        int(0.02 * self.sr), int(0.08 * self.sr) + 1, (1,)).item())
+                    loss_len = int(
+                        torch.randint(int(0.02 * self.sr), int(0.08 * self.sr) + 1, (1,)).item()
+                    )
                     start = torch.randint(0, max(1, T - loss_len), (1,)).item()
-                    x[i, :, start:start + loss_len] = 0.0
+                    x[i, :, start : start + loss_len] = 0.0
 
             # Clipping distortion per-sample, p=0.3
             for i in range(B):
@@ -337,11 +340,11 @@ class SpecAugment(nn.Module):
                 f = torch.randint(0, self.freq_mask + 1, (1,)).item()
                 if f > 0:
                     f_start = torch.randint(0, max(1, F - f), (1,)).item()
-                    spec[i, :, f_start:f_start + f, :] = 0.0
+                    spec[i, :, f_start : f_start + f, :] = 0.0
                 t = torch.randint(0, self.time_mask + 1, (1,)).item()
                 if t > 0:
                     t_start = torch.randint(0, max(1, T - t), (1,)).item()
-                    spec[i, :, :, t_start:t_start + t] = 0.0
+                    spec[i, :, :, t_start : t_start + t] = 0.0
         return spec
 
 
@@ -408,11 +411,11 @@ class DSFNet(nn.Module):
     ) -> torch.Tensor:
         if waveform.dtype != torch.float32:
             waveform = waveform.float()
-        if self.augment and hasattr(self, 'audio_aug'):
+        if self.augment and hasattr(self, "audio_aug"):
             waveform = self.audio_aug(waveform)
         if spectrogram is None:
             spectrogram = self.mel_transform(waveform)
-        if self.augment and hasattr(self, 'spec_aug'):
+        if self.augment and hasattr(self, "spec_aug"):
             spectrogram = self.spec_aug(spectrogram)
 
         feat_a = self.wave_enc(waveform)
@@ -536,18 +539,23 @@ class DSFNetV2(nn.Module):
         self.spec_proj = nn.Linear(spec_out_ch, d_model)
 
         # Cross-attention: wave sequence (query) attends to spec (key/value)
-        self.cross_layers = nn.ModuleList([
-            nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
-            for _ in range(n_layers)
-        ])
+        self.cross_layers = nn.ModuleList(
+            [
+                nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+                for _ in range(n_layers)
+            ]
+        )
         self.cross_norms = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(n_layers)])
 
         # Self-attention on wave sequence after cross-attn enrichment
-        self.self_layers = nn.ModuleList([
-            nn.TransformerEncoderLayer(d_model, n_heads, dim_feedforward=d_model * 4,
-                                       dropout=dropout, batch_first=True)
-            for _ in range(n_layers)
-        ])
+        self.self_layers = nn.ModuleList(
+            [
+                nn.TransformerEncoderLayer(
+                    d_model, n_heads, dim_feedforward=d_model * 4, dropout=dropout, batch_first=True
+                )
+                for _ in range(n_layers)
+            ]
+        )
 
         self.head = nn.Sequential(
             nn.LayerNorm(d_model + spec_out_ch),
@@ -561,24 +569,25 @@ class DSFNetV2(nn.Module):
             self.audio_aug = AudioAugment(sample_rate=sr)
             self.spec_aug = SpecAugment()
 
-    def forward(self, waveform: torch.Tensor,
-                spectrogram: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+        self, waveform: torch.Tensor, spectrogram: torch.Tensor | None = None
+    ) -> torch.Tensor:
         if waveform.dtype != torch.float32:
             waveform = waveform.float()
-        if self.augment and hasattr(self, 'audio_aug'):
+        if self.augment and hasattr(self, "audio_aug"):
             waveform = self.audio_aug(waveform)
         if spectrogram is None:
             spectrogram = self.mel_transform(waveform)
-        if self.augment and hasattr(self, 'spec_aug'):
+        if self.augment and hasattr(self, "spec_aug"):
             spectrogram = self.spec_aug(spectrogram)
 
         # Wave: (B, wave_out_ch, T') → (B, T', d_model)
         wave_seq = self.wave_enc(waveform).permute(0, 2, 1)  # (B, T', C)
-        wave_seq = self.wave_proj(wave_seq)                  # (B, T', d_model)
+        wave_seq = self.wave_proj(wave_seq)  # (B, T', d_model)
 
         # Spec: (B, spec_out_ch) → (B, 1, d_model) — serves as context token
-        spec_feat = self.spec_enc(spectrogram)               # (B, spec_out_ch)
-        spec_ctx = self.spec_proj(spec_feat).unsqueeze(1)    # (B, 1, d_model)
+        spec_feat = self.spec_enc(spectrogram)  # (B, spec_out_ch)
+        spec_ctx = self.spec_proj(spec_feat).unsqueeze(1)  # (B, 1, d_model)
 
         # Cross-attention: wave queries, spec context as key/value
         x = wave_seq
@@ -591,7 +600,7 @@ class DSFNetV2(nn.Module):
             x = self_layer(x)
 
         # Pool over time, concatenate with spec features
-        wave_pooled = x.mean(dim=1)                          # (B, d_model)
+        wave_pooled = x.mean(dim=1)  # (B, d_model)
         fused = torch.cat([wave_pooled, spec_feat], dim=-1)  # (B, d_model + spec_out_ch)
         return self.head(fused)
 

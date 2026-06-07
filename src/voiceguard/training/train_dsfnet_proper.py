@@ -18,8 +18,9 @@ from voiceguard.evaluation.metrics import compute_eer
 
 
 class AudioDataset(Dataset):
-    def __init__(self, data_paths: list[str | Path], clip_samples: int = 48000,
-                 squeeze: bool = False) -> None:
+    def __init__(
+        self, data_paths: list[str | Path], clip_samples: int = 48000, squeeze: bool = False
+    ) -> None:
         self.clip_samples = clip_samples
         self.squeeze = squeeze  # True for Wav2Vec2 (1D input)
         self.samples: list[tuple[Path, int]] = []
@@ -43,14 +44,15 @@ class AudioDataset(Dataset):
         if T < self.clip_samples:
             wav = nn.functional.pad(wav, (0, self.clip_samples - T))
         else:
-            wav = wav[:self.clip_samples]
+            wav = wav[: self.clip_samples]
         if not self.squeeze:
             wav = wav.unsqueeze(0)  # (1, T) for CNN models
         return wav, label
 
 
-def evaluate(model: nn.Module, loader: DataLoader, device: torch.device,
-             criterion: nn.Module | None = None) -> dict:
+def evaluate(
+    model: nn.Module, loader: DataLoader, device: torch.device, criterion: nn.Module | None = None
+) -> dict:
     model.eval()
     total_loss = 0.0
     all_scores: list[float] = []
@@ -130,7 +132,8 @@ def train(args: argparse.Namespace) -> None:
         n_val = max(1, int(0.1 * len(full_train_ds)))
         n_train = len(full_train_ds) - n_val
         train_ds, val_ds = random_split(
-            full_train_ds, [n_train, n_val],
+            full_train_ds,
+            [n_train, n_val],
             generator=torch.Generator().manual_seed(42),
         )
 
@@ -145,12 +148,17 @@ def train(args: argparse.Namespace) -> None:
         print(f" | Test: {len(test_ds)}", end="")
     print()
 
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size,
-                              shuffle=True, num_workers=4,
-                              generator=torch.Generator().manual_seed(42))
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=4,
+        generator=torch.Generator().manual_seed(42),
+    )
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, num_workers=4)
-    test_loader = (DataLoader(test_ds, batch_size=args.batch_size, num_workers=4)
-                   if test_ds else None)
+    test_loader = (
+        DataLoader(test_ds, batch_size=args.batch_size, num_workers=4) if test_ds else None
+    )
 
     model = get_model(args.model, args.dropout, args.sr, args.augment).to(device)
     print(f"Model: {args.model} | Parameters: {model.count_parameters():,}")
@@ -169,11 +177,13 @@ def train(args: argparse.Namespace) -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
     # Warm-up for 5% of epochs then cosine decay — critical for large models
     warmup_epochs = max(1, int(0.05 * args.epochs))
+
     def _lr_lambda(epoch: int) -> float:
         if epoch < warmup_epochs:
             return (epoch + 1) / warmup_epochs
         progress = (epoch - warmup_epochs) / max(1, args.epochs - warmup_epochs)
         return 0.5 * (1.0 + math.cos(math.pi * progress))
+
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=_lr_lambda)
 
     if args.label_smooth > 0:
@@ -297,6 +307,7 @@ def train(args: argparse.Namespace) -> None:
             torch.save(best_ckpt_data, out_dir / "model_best.pt")
             try:
                 from voiceguard.models.checkpoint_manager import save_snapshot
+
                 save_snapshot(out_dir / "model_best.pt", args.model)
             except Exception:  # noqa: S110
                 pass  # snapshot failure never interrupts training
@@ -332,9 +343,13 @@ def train(args: argparse.Namespace) -> None:
         model.load_state_dict(best_state["model_state"])
         test_metrics = evaluate(model, test_loader, device, criterion)
         test_eer = test_metrics["eer"]
-        final = {"best_epoch": best_epoch, "best_val_eer": round(best_val_eer, 4),
-                 "best_val_loss": best_val_loss,
-                 "test_eer": round(test_eer, 4), "test_loss": round(test_metrics["loss"], 4)}
+        final = {
+            "best_epoch": best_epoch,
+            "best_val_eer": round(best_val_eer, 4),
+            "best_val_loss": best_val_loss,
+            "test_eer": round(test_eer, 4),
+            "test_loss": round(test_metrics["loss"], 4),
+        }
         (out_dir / "final_results.json").write_text(json.dumps(final, indent=2))
         print(json.dumps(final))
 
@@ -352,9 +367,11 @@ def main() -> None:
     p.add_argument("--val-path", action="append", default=None)
     p.add_argument("--test-path", default=None)
     p.add_argument("--checkpoint-dir", default="checkpoints")
-    p.add_argument("--model", default="base",
-                    choices=["base", "large", "xl", "tiny", "v2",
-                             "aasist", "aasist_large", "wav2vec2"])
+    p.add_argument(
+        "--model",
+        default="base",
+        choices=["base", "large", "xl", "tiny", "v2", "aasist", "aasist_large", "wav2vec2"],
+    )
     p.add_argument("--epochs", type=int, default=40)
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--lr", type=float, default=1e-4)
@@ -368,8 +385,12 @@ def main() -> None:
     p.add_argument("--label-smooth", type=float, default=0.0, help="Label smoothing")
     p.add_argument("--early-stop", type=int, default=0, help="Early stop patience (0=disabled)")
     p.add_argument("--resume", action="store_true")
-    p.add_argument("--accum-steps", type=int, default=1,
-                   help="Gradient accumulation steps (effective_bs = batch_size × accum_steps)")
+    p.add_argument(
+        "--accum-steps",
+        type=int,
+        default=1,
+        help="Gradient accumulation steps (effective_bs = batch_size × accum_steps)",
+    )
     args = p.parse_args()
     train(args)
 

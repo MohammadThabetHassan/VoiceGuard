@@ -103,9 +103,7 @@ class Wav2Vec2Dataset(torch.utils.data.Dataset):
         return wav, label
 
 
-
-def _eval_loader(model: nn.Module, loader, device: torch.device,
-                  criterion: nn.Module) -> dict:
+def _eval_loader(model: nn.Module, loader, device: torch.device, criterion: nn.Module) -> dict:
     model.eval()
     total_loss = 0.0
     all_scores: list[float] = []
@@ -160,6 +158,7 @@ def train(args: argparse.Namespace) -> None:
     augmentor = None
     if args.augment:
         from voiceguard.models.dsfnet import AudioAugment
+
         augmentor = AudioAugment(sample_rate=args.sr).to(device)
         augmentor.train()
 
@@ -233,9 +232,12 @@ def train(args: argparse.Namespace) -> None:
             best_val_loss = val_m["loss"]
             best_epoch = epoch
             patience_counter = 0
-            torch.save({"epoch": epoch, "model_state": model.state_dict(),
-                        "metrics": metrics}, out_dir / "model_best.pt")
+            torch.save(
+                {"epoch": epoch, "model_state": model.state_dict(), "metrics": metrics},
+                out_dir / "model_best.pt",
+            )
             from voiceguard.models.checkpoint_manager import save_snapshot
+
             save_snapshot(out_dir / "model_best.pt", "wav2vec2")
         else:
             patience_counter += 1
@@ -255,8 +257,12 @@ def train(args: argparse.Namespace) -> None:
         model.load_state_dict(best_state["model_state"])
         test_m = _eval_loader(model, test_loader, device, criterion)
         test_eer = test_m["eer"]
-        final = {"best_epoch": best_epoch, "best_val_loss": best_val_loss,
-                 "test_eer": round(test_eer, 4), "test_loss": round(test_m["loss"], 4)}
+        final = {
+            "best_epoch": best_epoch,
+            "best_val_loss": best_val_loss,
+            "test_eer": round(test_eer, 4),
+            "test_loss": round(test_m["loss"], 4),
+        }
         (out_dir / "final_results.json").write_text(json.dumps(final, indent=2))
         print(json.dumps(final))
 

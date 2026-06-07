@@ -5,6 +5,7 @@ Maps model keys to loaders + checkpoint env-var names. Provides
 auto-discovery of the newest .pt in checkpoints/<key>/ when the env-var
 is not set. The /detect endpoint and /health both use this registry.
 """
+
 from __future__ import annotations
 
 import os
@@ -23,6 +24,7 @@ def _newest_pt(subdir: str) -> Path | None:
 
 def _load_classical(path: Path) -> Any:
     from voiceguard.models.classical import ClassicalDetector
+
     return ClassicalDetector.from_file(str(path))
 
 
@@ -30,6 +32,7 @@ def _load_dsfnet(path: Path) -> Any:
     import torch
 
     from voiceguard.models.dsfnet import DSFNet
+
     model = DSFNet()
     ckpt = torch.load(path, map_location="cpu", weights_only=True)
     model.load_state_dict(ckpt.get("model_state", ckpt), strict=False)
@@ -41,6 +44,7 @@ def _load_dsfnet_v2(path: Path) -> Any:
     import torch
 
     from voiceguard.models.dsfnet import DSFNetV2
+
     model = DSFNetV2()
     ckpt = torch.load(path, map_location="cpu", weights_only=True)
     model.load_state_dict(ckpt.get("model_state", ckpt), strict=False)
@@ -52,6 +56,7 @@ def _load_aasist(path: Path) -> Any:
     import torch
 
     from voiceguard.models.aasist import AASIST
+
     model = AASIST()
     ckpt = torch.load(path, map_location="cpu", weights_only=True)
     model.load_state_dict(ckpt.get("model_state", ckpt), strict=False)
@@ -63,6 +68,7 @@ def _load_wav2vec2(path: Path) -> Any:
     import torch
 
     from voiceguard.models.wav2vec2_ft import Wav2Vec2Classifier
+
     model = Wav2Vec2Classifier()
     ckpt = torch.load(path, map_location="cpu", weights_only=True)
     model.load_state_dict(ckpt.get("model_state", ckpt), strict=False)
@@ -77,6 +83,7 @@ def _load_ssl(model_name: str) -> Callable[[Path], Any]:
         import torch
 
         from voiceguard.models.ssl_classifier import SSLClassifier
+
         # Try to read model_name from sibling config.json
         cfg_path = path.parent / "config.json"
         name = model_name
@@ -90,33 +97,46 @@ def _load_ssl(model_name: str) -> Callable[[Path], Any]:
         model.load_state_dict(ckpt.get("model_state", ckpt), strict=False)
         model.eval()
         return model
+
     return _loader
 
 
 # Registry definition: key → {env, loader, discover_subdir}
 _REGISTRY_DEF: dict[str, dict] = {
-    "classical":        {"env": "CLASSICAL_MODEL_PATH",    "loader": _load_classical,
-                         "discover": "classical", "ext": ".pkl"},
-    "dsfnet":           {"env": "DSFNET_MODEL_PATH",       "loader": _load_dsfnet,
-                         "discover": "dsfnet"},
-    "dsfnet_v2":        {"env": "DSFNET_V2_MODEL_PATH",    "loader": _load_dsfnet_v2,
-                         "discover": "dsfnet_v2"},
-    "aasist":           {"env": "AASIST_MODEL_PATH",       "loader": _load_aasist,
-                         "discover": "aasist"},
-    "wav2vec2":         {"env": "WAV2VEC2_MODEL_PATH",     "loader": _load_wav2vec2,
-                         "discover": "wav2vec2"},
-    "wavlm_base_plus":  {"env": "WAVLM_BASE_PLUS_PATH",
-                         "loader": _load_ssl("microsoft/wavlm-base-plus"),
-                         "discover": "wavlm_base_plus"},
-    "wavlm_large":      {"env": "WAVLM_LARGE_PATH",
-                         "loader": _load_ssl("microsoft/wavlm-large"),
-                         "discover": "wavlm_large"},
-    "wav2vec2_large":   {"env": "WAV2VEC2_LARGE_PATH",
-                         "loader": _load_ssl("facebook/wav2vec2-large"),
-                         "discover": "wav2vec2_large"},
-    "xls_r":            {"env": "XLS_R_PATH",
-                         "loader": _load_ssl("facebook/wav2vec2-xls-r-300m"),
-                         "discover": "xls_r"},
+    "classical": {
+        "env": "CLASSICAL_MODEL_PATH",
+        "loader": _load_classical,
+        "discover": "classical",
+        "ext": ".pkl",
+    },
+    "dsfnet": {"env": "DSFNET_MODEL_PATH", "loader": _load_dsfnet, "discover": "dsfnet"},
+    "dsfnet_v2": {
+        "env": "DSFNET_V2_MODEL_PATH",
+        "loader": _load_dsfnet_v2,
+        "discover": "dsfnet_v2",
+    },
+    "aasist": {"env": "AASIST_MODEL_PATH", "loader": _load_aasist, "discover": "aasist"},
+    "wav2vec2": {"env": "WAV2VEC2_MODEL_PATH", "loader": _load_wav2vec2, "discover": "wav2vec2"},
+    "wavlm_base_plus": {
+        "env": "WAVLM_BASE_PLUS_PATH",
+        "loader": _load_ssl("microsoft/wavlm-base-plus"),
+        "discover": "wavlm_base_plus",
+    },
+    "wavlm_large": {
+        "env": "WAVLM_LARGE_PATH",
+        "loader": _load_ssl("microsoft/wavlm-large"),
+        "discover": "wavlm_large",
+    },
+    "wav2vec2_large": {
+        "env": "WAV2VEC2_LARGE_PATH",
+        "loader": _load_ssl("facebook/wav2vec2-large"),
+        "discover": "wav2vec2_large",
+    },
+    "xls_r": {
+        "env": "XLS_R_PATH",
+        "loader": _load_ssl("facebook/wav2vec2-xls-r-300m"),
+        "discover": "xls_r",
+    },
 }
 
 

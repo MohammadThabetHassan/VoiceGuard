@@ -10,6 +10,7 @@ real ASVspoof 2021 LA eval samples, runs Wav2Vec2-large, and reports:
 
 This tests generalization to a synthesis system never seen during training.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,15 +22,15 @@ import torch
 import torch.nn.functional as F  # noqa: N812
 import torchaudio
 
-sys.path.insert(0, "/tmp/voiceguard-workspace/workspace/voiceguard/src")  # noqa: S108
+sys.path.insert(0, "/tmp/voiceguard-workspace/workspace/voiceguard/src")  # noqa: S108  # nosec B108
 
 CKPT = Path(  # noqa: S108
     "/srv/thabet/voiceguard-checkpoints/runs/wav2vec2-large_20ep_b8_lr5e-06_aug/model_best.pt"
 )
-REAL_FLAC_DIR = Path("/tmp/voiceguard-workspace/data/asvspoof/raw/eval/flac")  # noqa: S108
+REAL_FLAC_DIR = Path("/tmp/voiceguard-workspace/data/asvspoof/raw/eval/flac")  # noqa: S108  # nosec B108
 OUT_DIR = Path("/srv/thabet/voiceguard-checkpoints/ood_eval")  # noqa: S108
-N_FAKES = 30   # Kokoro samples to generate
-N_REALS = 30   # Real samples to use
+N_FAKES = 30  # Kokoro samples to generate
+N_REALS = 30  # Real samples to use
 TARGET_LEN = 48000  # 3s @ 16kHz
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -82,8 +83,8 @@ def generate_mms_fakes(out_dir: Path) -> list[Path]:
     from transformers import AutoTokenizer, VitsModel
 
     print("Loading facebook/mms-tts-eng ...")
-    tokenizer = AutoTokenizer.from_pretrained("facebook/mms-tts-eng")  # noqa: B615
-    model = VitsModel.from_pretrained("facebook/mms-tts-eng")  # noqa: B615
+    tokenizer = AutoTokenizer.from_pretrained("facebook/mms-tts-eng")  # noqa: B615  # nosec B615
+    model = VitsModel.from_pretrained("facebook/mms-tts-eng")  # noqa: B615  # nosec B615
     model.eval()
 
     fake_paths = []
@@ -97,7 +98,7 @@ def generate_mms_fakes(out_dir: Path) -> list[Path]:
         sf.write(str(path), output, sr, subtype="PCM_16")
         fake_paths.append(path)
         if (i + 1) % 10 == 0:
-            print(f"  Generated {i+1}/{N_FAKES}")
+            print(f"  Generated {i + 1}/{N_FAKES}")
     print(f"Generated {len(fake_paths)} MMS-TTS fakes -> {out_dir}")
     return fake_paths
 
@@ -106,7 +107,7 @@ def load_real_samples(n: int) -> list[Path]:
     """Pick N real FLAC files from ASVspoof 2021 LA eval."""
     all_real = sorted(REAL_FLAC_DIR.glob("LA_E_*.flac"))
     # Use known real files (label=bonafide) — take deterministic sample
-    selected = all_real[::len(all_real)//n][:n]
+    selected = all_real[:: len(all_real) // n][:n]
     print(f"Selected {len(selected)} real samples from {REAL_FLAC_DIR}")
     return selected
 
@@ -114,14 +115,15 @@ def load_real_samples(n: int) -> list[Path]:
 def load_audio(path: Path) -> torch.Tensor:
     """Load, resample to 16kHz mono, pad/trim to TARGET_LEN."""
     import soundfile as sf
+
     data, sr = sf.read(str(path), always_2d=False)
     wav = torch.from_numpy(data).float()
     if wav.dim() == 2:
-        wav = wav.mean(1)   # stereo → mono
+        wav = wav.mean(1)  # stereo → mono
     wav = wav.unsqueeze(0)  # (1, T) for resample
     if sr != 16000:
         wav = torchaudio.functional.resample(wav, sr, 16000)
-    wav = wav.squeeze(0)    # (T,)
+    wav = wav.squeeze(0)  # (T,)
     if wav.shape[0] < TARGET_LEN:
         wav = F.pad(wav, (0, TARGET_LEN - wav.shape[0]))
     else:
@@ -131,6 +133,7 @@ def load_audio(path: Path) -> torch.Tensor:
 
 def load_model() -> torch.nn.Module:
     from voiceguard.models.ssl_classifier import SSLClassifier
+
     cfg = json.loads((CKPT.parent / "config.json").read_text())
     model = SSLClassifier(cfg["model_name"])
     state = torch.load(CKPT, map_location="cpu", weights_only=True)
@@ -149,13 +152,15 @@ def score_files(model, paths: list[Path], label: str) -> list[dict]:
         probs = torch.softmax(logits, dim=-1)[0].cpu().tolist()
         fake_prob = probs[1]
         prediction = "fake" if fake_prob >= 0.5 else "real"
-        results.append({
-            "file": p.name,
-            "true_label": label,
-            "predicted": prediction,
-            "fake_prob": round(fake_prob, 4),
-            "correct": prediction == label,
-        })
+        results.append(
+            {
+                "file": p.name,
+                "true_label": label,
+                "predicted": prediction,
+                "fake_prob": round(fake_prob, 4),
+                "correct": prediction == label,
+            }
+        )
     return results
 
 
@@ -193,24 +198,24 @@ def main():
         "n_fakes": len(fake_results),
         "n_reals": len(real_results),
         "fake_detection_rate": round(fake_det / len(fake_results), 4),
-        "real_pass_rate":      round(real_pass / len(real_results), 4),
-        "overall_accuracy":    round(n_correct / len(all_results), 4),
+        "real_pass_rate": round(real_pass / len(real_results), 4),
+        "overall_accuracy": round(n_correct / len(all_results), 4),
         "avg_fake_score_on_fakes": round(np.mean([r["fake_prob"] for r in fake_results]), 4),
         "avg_fake_score_on_reals": round(np.mean([r["fake_prob"] for r in real_results]), 4),
     }
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("OOD SYNTHESIS EVALUATION RESULTS")
-    print("="*60)
+    print("=" * 60)
     print(f"Synthesis system : {summary['synthesis_system']}")
-    pct = summary['fake_detection_rate'] * 100
+    pct = summary["fake_detection_rate"] * 100
     print(f"Fake detection   : {pct:.1f}%  ({fake_det}/{len(fake_results)})")
-    rpt = summary['real_pass_rate'] * 100
+    rpt = summary["real_pass_rate"] * 100
     print(f"Real pass rate   : {rpt:.1f}%  ({real_pass}/{len(real_results)})")
-    print(f"Overall accuracy : {summary['overall_accuracy']*100:.1f}%")
+    print(f"Overall accuracy : {summary['overall_accuracy'] * 100:.1f}%")
     print(f"Avg fake-score (on Kokoro) : {summary['avg_fake_score_on_fakes']:.4f}")
     print(f"Avg fake-score (on real)   : {summary['avg_fake_score_on_reals']:.4f}")
-    print("="*60)
+    print("=" * 60)
 
     out_json = OUT_DIR / "ood_eval_results.json"
     out_json.write_text(json.dumps({"summary": summary, "per_file": all_results}, indent=2))

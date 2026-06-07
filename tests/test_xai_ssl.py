@@ -1,4 +1,5 @@
 """Tests for SSL Integrated Gradients attribution."""
+
 from __future__ import annotations
 
 import pytest
@@ -12,13 +13,14 @@ from voiceguard.xai.ssl_explain import (
 
 class _FakeModel(torch.nn.Module):
     """Minimal model: scores second half of waveform as fake."""
+
     def __init__(self):
         super().__init__()
         self.linear = torch.nn.Linear(1, 2)
 
     def forward(self, x):  # x: (B, T)
         # Deliberately make model sensitive to the second half
-        second_half = x[:, x.shape[1] // 2:].abs().mean(dim=-1, keepdim=True)
+        second_half = x[:, x.shape[1] // 2 :].abs().mean(dim=-1, keepdim=True)
         return self.linear(second_half)
 
 
@@ -34,7 +36,7 @@ def waveform():
     T = 16000  # 1s @ 16kHz
     w = torch.zeros(1, T)
     # Put a spike in the second half
-    w[0, T // 2:] = 1.0
+    w[0, T // 2 :] = 1.0
     return w
 
 

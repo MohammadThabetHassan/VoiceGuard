@@ -191,6 +191,7 @@ def _explain_ssl(path: str, model_key: str) -> ExplanationResult | None:
     try:
         raw = explain_waveform(model, wav)
         from voiceguard.api.schemas import AttributionSegment
+
         return ExplanationResult(
             method=raw["method"],
             baseline=raw["baseline"],

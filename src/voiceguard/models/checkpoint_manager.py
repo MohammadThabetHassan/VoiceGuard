@@ -4,6 +4,7 @@ Checkpoint snapshot manager — prevents training data loss from corrupt writes.
 Every call to save_snapshot() copies a .pt file to a timestamped snapshot
 directory. Up to MAX_SNAPSHOTS are kept per model key; oldest are pruned.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -77,6 +78,4 @@ def restore_snapshot(snapshot_path: Path, dest_path: Path) -> None:
     expected = snapshot_path.stem.split("_")[-1]
     if actual != expected:
         dest_path.unlink(missing_ok=True)
-        raise ValueError(
-            f"Snapshot integrity check failed: expected {expected}, got {actual}"
-        )
+        raise ValueError(f"Snapshot integrity check failed: expected {expected}, got {actual}")

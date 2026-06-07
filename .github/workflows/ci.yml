@@ -31,7 +31,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install system deps
-        run: sudo apt-get install -y libsndfile1 ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y libsndfile1 ffmpeg
       - name: Install package
         run: pip install -e ".[dev]" --extra-index-url https://download.pytorch.org/whl/cpu
       - name: Run tests
