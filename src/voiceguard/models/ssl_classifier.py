@@ -56,9 +56,69 @@ class SSLClassifier(nn.Module):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
+class SSLAASIST(nn.Module):
+    """SSL front-end + AASIST-style graph-attention back-end.
+
+    The literature-SOTA recipe for ASVspoof21-LA: instead of mean-pooling the
+    SSL hidden states (which left XLS-R at 10.47% here), take a *learnable
+    weighted sum of all transformer layers*, project to d_model, prepend a CLS
+    token, run multi-head graph-attention over the temporal frames, and classify
+    the CLS output. Targets the hard hidden-track attacks (A10/A11/A18).
+    """
+
+    def __init__(self, model_name: str, d_model: int = 256, n_heads: int = 4,
+                 n_layers: int = 2, dropout: float = 0.2,
+                 freeze_feature_encoder: bool = True) -> None:
+        super().__init__()
+        self.model_name = model_name
+        from transformers import AutoConfig, AutoModel
+
+        from voiceguard.models.aasist import GraphAttentionLayer
+        cfg = AutoConfig.from_pretrained(model_name)  # nosec B615
+        self.backbone = AutoModel.from_pretrained(model_name)  # nosec B615
+        if freeze_feature_encoder and hasattr(self.backbone, "feature_extractor"):
+            self.backbone.feature_extractor._freeze_parameters()
+        n_hidden = cfg.num_hidden_layers + 1  # +1 for embedding output
+        self.layer_weights = nn.Parameter(torch.ones(n_hidden) / n_hidden)
+        self.proj = nn.Linear(cfg.hidden_size, d_model)
+        self.cls_token = nn.Parameter(torch.randn(1, 1, d_model) * 0.02)
+        self.graph_layers = nn.ModuleList(
+            [GraphAttentionLayer(d_model, n_heads, dropout) for _ in range(n_layers)]
+        )
+        self.head = nn.Sequential(
+            nn.LayerNorm(d_model), nn.Linear(d_model, 128), nn.ReLU(),
+            nn.Dropout(dropout), nn.Linear(128, 2),
+        )
+
+    def forward(self, input_values: torch.Tensor) -> torch.Tensor:
+        if input_values.dtype != torch.float32:
+            input_values = input_values.float()
+        out = self.backbone(input_values, output_hidden_states=True)
+        hs = torch.stack(out.hidden_states, dim=0)          # (L, B, T, H)
+        w = torch.softmax(self.layer_weights, dim=0).view(-1, 1, 1, 1)
+        feat = (hs * w).sum(dim=0)                            # (B, T, H)
+        feat = self.proj(feat)                               # (B, T, d_model)
+        cls = self.cls_token.expand(feat.size(0), -1, -1)
+        x = torch.cat([cls, feat], dim=1)                    # (B, T+1, d_model)
+        for layer in self.graph_layers:
+            x = layer(x)
+        return self.head(x[:, 0])                            # CLS → logits
+
+    def predict(self, x: torch.Tensor):
+        with torch.no_grad():
+            logits = self.forward(x)
+            probs = torch.softmax(logits, dim=-1)
+            return torch.argmax(probs, dim=-1), probs
+
+    def count_parameters(self) -> int:
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+
 class AudioDataset(torch.utils.data.Dataset):
-    def __init__(self, data_path: str | Path, clip_samples: int = 48000) -> None:
+    def __init__(self, data_path: str | Path, clip_samples: int = 48000,
+                 rawboost=None) -> None:
         self.clip_samples = clip_samples
+        self.rawboost = rawboost  # callable(wav)->wav applied per-sample (train only)
         self.samples: list[tuple[Path, int]] = []
         for label, idx in [("real", 0), ("fake", 1)]:
             d = Path(data_path) / label
@@ -72,7 +132,9 @@ class AudioDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         path, label = self.samples[idx]
         wav = torch.load(path, weights_only=True)
-        wav = wav.reshape(-1)  # flatten (1,T) or (1,1,T) → (T,)
+        wav = wav.reshape(-1).float()  # flatten (1,T) or (1,1,T) → (T,)
+        if self.rawboost is not None:
+            wav = self.rawboost(wav)   # CPU per-sample RawBoost (OOD robustness)
         T = wav.shape[0]
         if T < self.clip_samples:
             wav = nn.functional.pad(wav, (0, self.clip_samples - T))
@@ -103,9 +165,17 @@ def train(args: argparse.Namespace) -> None:
     print(f"Device: {device}")
 
     from torch.utils.data import ConcatDataset, DataLoader
-    train_ds = AudioDataset(args.train_path, args.sr * 3)
+
+    rawboost = None
+    if getattr(args, "rawboost", False):
+        from voiceguard.training.rawboost import RawBoost
+        rawboost = RawBoost(p=args.rawboost_p, algo=0, fs=args.sr)
+        print(f"RawBoost ENABLED (p={args.rawboost_p}, algo=random) — OOD robustness aug")
+
+    # RawBoost applies only to training data (never val/test).
+    train_ds = AudioDataset(args.train_path, args.sr * 3, rawboost=rawboost)
     for extra in (args.extra_train_path or []):
-        extra_ds = AudioDataset(extra, args.sr * 3)
+        extra_ds = AudioDataset(extra, args.sr * 3, rawboost=rawboost)
         if extra_ds:
             train_ds = ConcatDataset([train_ds, extra_ds])
             print(f"  + {extra}: {len(extra_ds)} samples")
@@ -120,13 +190,19 @@ def train(args: argparse.Namespace) -> None:
     val_loader   = DataLoader(val_ds,   args.batch_size, num_workers=4)
     test_loader  = DataLoader(test_ds,  args.batch_size, num_workers=4) if test_ds else None
 
-    model = SSLClassifier(args.model_name).to(device)
-    print(f"Model: {args.model_name} | Trainable: {model.count_parameters():,}")
+    if getattr(args, "arch", "linear") == "aasist":
+        model = SSLAASIST(args.model_name).to(device)
+    else:
+        model = SSLClassifier(args.model_name).to(device)
+    print(f"Model: {args.model_name} [{getattr(args,'arch','linear')}] | "
+          f"Trainable: {model.count_parameters():,}")
 
-    if args.resume:
-        ckpt = torch.load(args.resume, map_location=device, weights_only=True)
-        model.load_state_dict(ckpt.get("model_state", ckpt), strict=False)
-        print(f"Resumed from {args.resume}")
+    # Resume state (restored after optimizer/scheduler are built, below).
+    resume_state = None
+    if args.resume and Path(args.resume).exists():
+        resume_state = torch.load(args.resume, map_location=device, weights_only=True)
+        model.load_state_dict(resume_state.get("model_state", resume_state), strict=False)
+        print(f"Resumed weights from {args.resume}")
 
     augmentor = None
     if args.augment:
@@ -148,8 +224,12 @@ def train(args: argparse.Namespace) -> None:
     # Experiment label includes model short name
     short = args.model_name.split("/")[-1]
     expt = f"{short}_{args.epochs}ep_b{args.batch_size}_lr{args.lr}"
+    if getattr(args, "arch", "linear") != "linear":
+        expt += f"_{args.arch}"
     if args.augment:
         expt += "_aug"
+    if getattr(args, "rawboost", False):
+        expt += "_rawboost"
     out_dir = Path(args.checkpoint_dir) / expt
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "config.json").write_text(json.dumps(vars(args), indent=2))
@@ -157,8 +237,32 @@ def train(args: argparse.Namespace) -> None:
     use_amp = device.type == "cuda"
     scaler = torch.amp.GradScaler("cuda") if use_amp else None
     history, best_eer, _best_loss, best_ep, patience = [], float("inf"), float("inf"), -1, 0
+    start_epoch = 0
 
-    for epoch in range(args.epochs):
+    # Full-state resume (optimizer/scheduler/scaler/epoch/best) for GPU-interrupt safety.
+    if resume_state is not None and "optimizer_state" in resume_state:
+        optimizer.load_state_dict(resume_state["optimizer_state"])
+        scheduler.load_state_dict(resume_state["scheduler_state"])
+        if scaler is not None and resume_state.get("scaler_state"):
+            scaler.load_state_dict(resume_state["scaler_state"])
+        start_epoch = resume_state.get("epoch", -1) + 1
+        best_eer = resume_state.get("best_val_eer", float("inf"))
+        best_ep = resume_state.get("best_epoch", -1)
+        patience = resume_state.get("patience", 0)
+        history = resume_state.get("history", [])
+        print(f"Resumed full training state -> start_epoch={start_epoch}, best_eer={best_eer:.4f}")
+
+    def _save_last(epoch):
+        """Full-state checkpoint each epoch so a GPU reclaim resumes cleanly."""
+        torch.save({"epoch": epoch, "model_state": model.state_dict(),
+                    "optimizer_state": optimizer.state_dict(),
+                    "scheduler_state": scheduler.state_dict(),
+                    "scaler_state": scaler.state_dict() if scaler else None,
+                    "best_val_eer": best_eer, "best_epoch": best_ep,
+                    "patience": patience, "history": history},
+                   out_dir / "model_last.pt")
+
+    for epoch in range(start_epoch, args.epochs):
         model.train()
         train_loss, t0 = 0.0, time.time()
 
@@ -216,7 +320,8 @@ def train(args: argparse.Namespace) -> None:
                 val_eer, vm["loss"], epoch, 0
             )
             torch.save({"epoch": epoch, "model_state": model.state_dict(),
-                        "best_val_eer": best_eer, "metrics": m}, out_dir / "model_best.pt")
+                        "best_val_eer": best_eer, "best_epoch": best_ep,
+                        "metrics": m}, out_dir / "model_best.pt")
             try:
                 from voiceguard.models.checkpoint_manager import save_snapshot
                 save_snapshot(out_dir / "model_best.pt", args.model_name.split("/")[-1])
@@ -224,6 +329,8 @@ def train(args: argparse.Namespace) -> None:
                 pass
         else:
             patience += 1
+
+        _save_last(epoch)  # full-state resume checkpoint every epoch
 
         if args.early_stop > 0 and patience >= args.early_stop:
             print(f"Early stopping at epoch {epoch} (best val_eer={best_eer:.4f} @ ep {best_ep})")
@@ -259,8 +366,15 @@ def main():
     p.add_argument("--lr",         type=float, default=1e-5)
     p.add_argument("--sr",         type=int,   default=16000)
     p.add_argument("--early-stop", type=int,   default=6)
+    p.add_argument("--arch", choices=["linear", "aasist"], default="linear",
+                   help="Back-end: linear head (default) or AASIST graph-attention")
     p.add_argument("--augment",    action="store_true")
-    p.add_argument("--resume",     default=None, help="Path to checkpoint to resume from")
+    p.add_argument("--rawboost",   action="store_true",
+                   help="Enable per-sample RawBoost waveform aug (OOD robustness)")
+    p.add_argument("--rawboost-p", type=float, default=0.5, dest="rawboost_p",
+                   help="Probability of applying RawBoost per sample")
+    p.add_argument("--resume",     default=None,
+                   help="Checkpoint to resume from (model_last.pt restores full state)")
     p.add_argument("--extra-train-path", action="append", default=[],
                    dest="extra_train_path",
                    help="Extra training dirs merged with --train-path (repeat for multiple)")
