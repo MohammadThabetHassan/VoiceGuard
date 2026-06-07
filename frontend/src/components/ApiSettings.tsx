@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { getApiUrl, setApiUrl } from '../config/apiConfig'
+import { getApiUrl, setApiUrl, hasToken, clearToken, ApiError } from '../config/apiConfig'
+import { login } from '../services/authService'
 
 type ConnState = 'untested' | 'testing' | 'connected' | 'failed'
 
@@ -17,14 +18,40 @@ export default function ApiSettings() {
   const [message, setMessage] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
 
+  // Auth state
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [loggedIn, setLoggedIn] = useState(false)
+  const [authMsg, setAuthMsg] = useState('')
+
   // Populate the input with the currently saved URL whenever the modal opens.
   useEffect(() => {
     if (open) {
       setUrl(getApiUrl())
       setConn('untested')
       setMessage('')
+      setLoggedIn(hasToken())
+      setAuthMsg('')
     }
   }, [open])
+
+  const handleLogin = async () => {
+    setAuthMsg('')
+    try {
+      await login(username, password)
+      setLoggedIn(true)
+      setPassword('')
+      setAuthMsg('Logged in — detection enabled')
+    } catch (e) {
+      setAuthMsg(e instanceof ApiError ? e.message : 'Login failed (network error)')
+    }
+  }
+
+  const handleLogout = () => {
+    clearToken()
+    setLoggedIn(false)
+    setAuthMsg('Logged out')
+  }
 
   const testConnection = async () => {
     const target = url.trim().replace(/\/+$/, '')
@@ -142,8 +169,58 @@ export default function ApiSettings() {
               </span>
             </div>
 
-            {/* Backend start hint */}
+            {/* Authentication — /detect requires a JWT */}
             <div className="mt-5 rounded-lg border border-gray-800 bg-gray-900 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-medium text-gray-400">Authentication (for Detect)</p>
+                <span
+                  className={`text-[11px] ${loggedIn ? 'text-green-400' : 'text-gray-500'}`}
+                >
+                  {loggedIn ? '● logged in' : '○ not logged in'}
+                </span>
+              </div>
+              {loggedIn ? (
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="w-full rounded-lg border border-gray-700 bg-gray-800 py-1.5 text-xs text-gray-300 transition hover:bg-gray-700"
+                >
+                  Log out
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="username"
+                    autoComplete="username"
+                    className="min-w-0 flex-1 rounded-lg border border-gray-700 bg-gray-800 p-2 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
+                  />
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                    placeholder="password"
+                    autoComplete="current-password"
+                    className="min-w-0 flex-1 rounded-lg border border-gray-700 bg-gray-800 p-2 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleLogin}
+                    disabled={!username || !password}
+                    className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    Log in
+                  </button>
+                </div>
+              )}
+              {authMsg && <p className="mt-2 text-[11px] text-gray-400">{authMsg}</p>}
+            </div>
+
+            {/* Backend start hint */}
+            <div className="mt-3 rounded-lg border border-gray-800 bg-gray-900 p-3">
               <p className="mb-1 text-xs font-medium text-gray-400">Start the backend on your PC:</p>
               <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs text-indigo-300">
 {`cd voiceguard

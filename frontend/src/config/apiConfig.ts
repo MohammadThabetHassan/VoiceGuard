@@ -30,6 +30,15 @@ export const getWsUrl = (): string => getApiUrl().replace(/^http/, 'ws')
 /** JWT bearer token, if the user has authenticated. */
 export const getToken = (): string => localStorage.getItem(TOKEN_KEY) || ''
 
+/** Persist a JWT (from POST /token). */
+export const setToken = (token: string): void => localStorage.setItem(TOKEN_KEY, token)
+
+/** Remove the stored JWT (log out). */
+export const clearToken = (): void => localStorage.removeItem(TOKEN_KEY)
+
+/** Whether a JWT is currently stored. */
+export const hasToken = (): boolean => getToken().length > 0
+
 /** Error carrying the HTTP status so callers can special-case 401/501/etc. */
 export class ApiError extends Error {
   status: number

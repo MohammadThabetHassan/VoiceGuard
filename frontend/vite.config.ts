@@ -24,5 +24,15 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        // Split heavy vendors into their own chunks for better caching and to
+        // keep the main bundle under the size-warning threshold.
+        manualChunks: {
+          react: ['react', 'react-dom'],
+          recharts: ['recharts'],
+        },
+      },
+    },
   },
 })
