@@ -1,0 +1,44 @@
+# VoiceGuard FastAPI backend — systemd unit
+#
+# Placeholders replaced by deploy/setup.sh:
+#   YOUR_USERNAME -> the Linux user that owns ~/voiceguard
+#
+# The repo is a proper Python package (pyproject.toml, `pip install -e .`), so
+# the app is launched as the module voiceguard.api.main:app. The venv lives at
+# the repo root (~/voiceguard/venv) and the source is under ~/voiceguard/src.
+#
+# Only ONE worker: the PyTorch detection models are loaded into process memory
+# and do not fork safely. Endpoints are async, so one worker is enough.
+
+[Unit]
+Description=VoiceGuard FastAPI Backend
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+User=YOUR_USERNAME
+WorkingDirectory=/home/YOUR_USERNAME/voiceguard
+Environment="PATH=/home/YOUR_USERNAME/voiceguard/venv/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=/home/YOUR_USERNAME/voiceguard/src"
+# Change SECRET_KEY to a long random value (e.g. `openssl rand -hex 32`) so JWTs
+# survive restarts and are not the insecure dev default.
+Environment="SECRET_KEY=change-me-openssl-rand-hex-32"
+# Used by the backend CORS allow-list (harmless behind same-origin Nginx, but
+# keeps direct-to-API requests working too). Replaced by setup.sh.
+Environment="VOICEGUARD_DOMAIN=YOUR_DOMAIN"
+ExecStart=/home/YOUR_USERNAME/voiceguard/venv/bin/uvicorn voiceguard.api.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 1 \
+    --log-level info \
+    --access-log
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=voiceguard
+
+[Install]
+WantedBy=multi-user.target

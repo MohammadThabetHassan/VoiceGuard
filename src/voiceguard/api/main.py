@@ -92,21 +92,26 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-# Allowed CORS origins: local dev + the static GitHub Pages frontend. The
-# hosted frontend calls this API directly from the browser, so its origin must
-# be allow-listed. Extra origins (e.g. an ngrok tunnel) can be added at runtime
-# via FRONTEND_ORIGINS (comma-separated). FRONTEND_ORIGIN (single) still works.
+# Allowed CORS origins: local dev + the self-hosted production domain. In the
+# self-hosted deployment, Nginx serves the frontend and proxies /api on the SAME
+# origin, so CORS is moot for the browser app; the domain is still allow-listed
+# so direct-to-API requests work. Set VOICEGUARD_DOMAIN (e.g. "voiceguard.tech")
+# to allow https://<domain> and https://www.<domain>. Extra origins (e.g. an
+# ngrok tunnel) can be added via FRONTEND_ORIGINS (comma-separated); a single one
+# via FRONTEND_ORIGIN.
 _DEFAULT_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
-    "https://mohammadthabethassan.github.io",
 ]
+_domain = os.environ.get("VOICEGUARD_DOMAIN", "").strip()
+_domain_origins = [f"https://{_domain}", f"https://www.{_domain}"] if _domain else []
 _single_origin = os.environ.get("FRONTEND_ORIGIN", "")
 _extra_origins = os.environ.get("FRONTEND_ORIGINS", "")
 ALLOWED_ORIGINS = list(
     dict.fromkeys(
         _DEFAULT_ORIGINS
+        + _domain_origins
         + ([_single_origin] if _single_origin else [])
         + [o.strip() for o in _extra_origins.split(",") if o.strip()]
     )
