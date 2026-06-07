@@ -92,10 +92,28 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
+# Allowed CORS origins: local dev + the static GitHub Pages frontend. The
+# hosted frontend calls this API directly from the browser, so its origin must
+# be allow-listed. Extra origins (e.g. an ngrok tunnel) can be added at runtime
+# via FRONTEND_ORIGINS (comma-separated). FRONTEND_ORIGIN (single) still works.
+_DEFAULT_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "https://mohammadthabethassan.github.io",
+]
+_single_origin = os.environ.get("FRONTEND_ORIGIN", "")
+_extra_origins = os.environ.get("FRONTEND_ORIGINS", "")
+ALLOWED_ORIGINS = list(
+    dict.fromkeys(
+        _DEFAULT_ORIGINS
+        + ([_single_origin] if _single_origin else [])
+        + [o.strip() for o in _extra_origins.split(",") if o.strip()]
+    )
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_ORIGIN],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
