@@ -1,20 +1,22 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-export default defineConfig({
-  // GitHub Pages serves project sites under /<repo>/ (case-sensitive). The repo
-  // is "VoiceGuard"; the deploy workflow sets VITE_BASE_PATH explicitly. For
-  // local dev the default '/' is used.
-  base: process.env.VITE_BASE_PATH || '/',
+// In production the app is served behind Nginx at the domain root and calls the
+// backend at the same-origin "/api/" prefix (Nginx proxies /api/ -> :8000 and
+// strips the prefix). In dev, Vite reproduces that: it proxies /api -> the local
+// uvicorn on :8000, stripping /api so the backend's bare routes (/detect, /token,
+// ...) are hit, and proxies /ws for the live-mic WebSocket.
+export default defineConfig(({ mode }) => ({
+  base: '/',
   plugins: [react()],
   server: {
     port: 5173,
     proxy: {
-      '/detect': 'http://localhost:8000',
-      '/synthesize': 'http://localhost:8000',
-      '/forensic': 'http://localhost:8000',
-      '/token': 'http://localhost:8000',
-      '/health': 'http://localhost:8000',
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
       '/ws': {
         target: 'ws://localhost:8000',
         ws: true,
@@ -23,7 +25,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: mode === 'development',
     rollupOptions: {
       output: {
         // Split heavy vendors into their own chunks for better caching and to
@@ -35,4 +37,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

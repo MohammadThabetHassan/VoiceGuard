@@ -1,36 +1,30 @@
 /**
- * Runtime API configuration.
+ * API configuration.
  *
- * The frontend is hosted statically (GitHub Pages) and cannot know the user's
- * local backend URL at build time. The URL is therefore resolved at runtime:
- *   localStorage  ->  VITE_API_URL (build-time env)  ->  http://localhost:8000
- *
- * The user sets/overrides it through the ApiSettings panel (gear button).
+ * The frontend is served behind Nginx at the same origin as the backend, which
+ * proxies the "/api/" prefix to FastAPI. The base is therefore fixed (no runtime
+ * URL picker): "/api" in production, overridable at build time via VITE_API_BASE.
+ * In dev, Vite's proxy maps /api -> http://localhost:8000.
  */
 
-const DEFAULT_API = (import.meta.env.VITE_API_URL as string) || 'http://localhost:8000'
+/** API base path (no trailing slash). e.g. "/api". */
+export const API_BASE = ((import.meta.env.VITE_API_BASE as string) || '/api').replace(/\/+$/, '')
 
-const URL_KEY = 'voiceguard_api_url'
 const TOKEN_KEY = 'vg_token'
 
-/** Current API base URL (no trailing slash). */
-export const getApiUrl = (): string => {
-  const stored = localStorage.getItem(URL_KEY)
-  return (stored && stored.length > 0 ? stored : DEFAULT_API).replace(/\/+$/, '')
+/**
+ * WebSocket URL for a backend path, derived from the current page origin so it
+ * auto-switches between ws:// and wss://. Pass e.g. "/ws/stream".
+ */
+export const getWsUrl = (path: string): string => {
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  return `${proto}://${window.location.host}${path}`
 }
-
-/** Persist a new API base URL (trailing slashes stripped). */
-export const setApiUrl = (url: string): void => {
-  localStorage.setItem(URL_KEY, url.trim().replace(/\/+$/, ''))
-}
-
-/** WebSocket base URL derived from the API URL (http->ws, https->wss). */
-export const getWsUrl = (): string => getApiUrl().replace(/^http/, 'ws')
 
 /** JWT bearer token, if the user has authenticated. */
 export const getToken = (): string => localStorage.getItem(TOKEN_KEY) || ''
 
-/** Persist a JWT (from POST /token). */
+/** Persist a JWT (from POST /api/token). */
 export const setToken = (token: string): void => localStorage.setItem(TOKEN_KEY, token)
 
 /** Remove the stored JWT (log out). */
@@ -50,13 +44,14 @@ export class ApiError extends Error {
 }
 
 /**
- * fetch wrapper that prepends the runtime API URL and attaches the bearer
- * token. `path` must start with '/'. Non-2xx responses raise ApiError with the
- * backend's `detail` message; network failures raise the underlying TypeError.
+ * fetch wrapper that prepends the API base and attaches the bearer token.
+ * `path` must start with '/' (e.g. '/detect'). Non-2xx responses raise ApiError
+ * with the backend's `detail` message; network failures raise the underlying
+ * TypeError.
  */
 export const apiFetch = (path: string, init: RequestInit = {}): Promise<Response> => {
   const token = getToken()
   const headers = new Headers(init.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  return fetch(`${getApiUrl()}${path}`, { ...init, headers })
+  return fetch(`${API_BASE}${path}`, { ...init, headers })
 }

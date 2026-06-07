@@ -2,7 +2,7 @@ import { useState } from 'react'
 import DetectTab from './pages/DetectTab'
 import GenerateTab from './pages/GenerateTab'
 import ResultsTab from './pages/ResultsTab'
-import ApiSettings from './components/ApiSettings'
+import LoginControl from './components/LoginControl'
 
 type Tab = 'detect' | 'generate' | 'results'
 
@@ -29,7 +29,10 @@ export default function App() {
               Real-time Voice Deepfake Detection
             </span>
           </div>
-          <span className="text-xs text-gray-600 font-mono">v0.1.0</span>
+          <div className="flex items-center gap-3">
+            <LoginControl />
+            <span className="text-xs text-gray-600 font-mono">v0.1.0</span>
+          </div>
         </div>
       </header>
 
@@ -69,8 +72,6 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Floating API settings (gear button, always visible) */}
-      <ApiSettings />
     </div>
   )
 }

@@ -1,5 +1,5 @@
-/** Authentication API calls (POST /token). */
-import { getApiUrl, setToken, ApiError } from '../config/apiConfig'
+/** Authentication API calls (POST /api/token). */
+import { apiFetch, setToken, ApiError } from '../config/apiConfig'
 
 /**
  * Exchange username/password for a JWT and store it (as `vg_token`).
@@ -9,7 +9,7 @@ import { getApiUrl, setToken, ApiError } from '../config/apiConfig'
  */
 export const login = async (username: string, password: string): Promise<void> => {
   const body = new URLSearchParams({ username, password })
-  const res = await fetch(`${getApiUrl()}/token`, {
+  const res = await apiFetch('/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
