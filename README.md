@@ -1,177 +1,185 @@
+<div align="center">
+
+<img src="assets/banner.png" alt="VoiceGuard" width="100%">
+
 # VoiceGuard
 
-[![Build](https://github.com/MohammadThabetHassan/VoiceGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/MohammadThabetHassan/VoiceGuard/actions)
-[![Coverage](https://img.shields.io/badge/coverage-≥80%25-brightgreen)](https://github.com/MohammadThabetHassan/VoiceGuard)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+**Real-time voice deepfake detection, synthesis watermarking, and vishing defence.**
 
-**VoiceGuard** is an AI-powered platform for real-time voice deepfake detection,
-adversarial speech synthesis, and vishing (voice phishing) defence. The
-production detector is an **XLS-R-300M + AASIST** model (headline eval EER 2.61%
-on ASVspoof 2021 LA), alongside a validated classical baseline (Enhanced+XGBoost,
-F1=0.9500) and the dual-stream DSFNet (research/edge model). It adds explainable
-AI (Integrated Gradients), local **Kokoro-82M** synthesis with spectral
-watermarking, and a Twilio WebSocket pipeline for live call interception — all
-delivered through a FastAPI backend and React 18 frontend (self-hosted
-Nginx + systemd; Docker Compose also provided).
+[![CI](https://github.com/MohammadThabetHassan/VoiceGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/MohammadThabetHassan/VoiceGuard/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev)
+[![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![IEEE SM2026](https://img.shields.io/badge/IEEE-SM2026-00629B.svg)](#-results)
 
-Developed as a graduation project (GP2) at the Canadian University Dubai, in
-fulfilment of the requirements for the Bachelor of Science in Computer Science.
+<a href="#-quick-start">Quick start</a> ·
+<a href="#-results">Results</a> ·
+<a href="#-architecture">Architecture</a> ·
+<a href="#-api">API</a> ·
+<a href="CONTRIBUTING.md">Contributing</a>
 
----
-
-## Running it
-
-The frontend and API are served **same-origin** (`/api`): the React build is
-static and the FastAPI backend runs locally — no audio leaves the host.
-
-1. Start the API (deps installed; the package is run via `PYTHONPATH`):
-   ```bash
-   PYTHONPATH=src \
-   XLS_R_AASIST_PATH=models/xls_r_aasist.pt \
-   SECRET_KEY="$(openssl rand -hex 32)" \
-   uvicorn voiceguard.api.main:app --host 127.0.0.1 --port 8000
-   ```
-2. Build & serve the frontend against `/api` (or use the combined dev server).
-3. Detect and Generate run against the local backend. Demo login `admin` /
-   `voiceguard2026` (change it — see [SECURITY.md](SECURITY.md)).
-
-> `/detect` requires a JWT from `POST /token` (stored as `vg_token`). The
-> production detector defaults to `xls_r_aasist`; set `XLS_R_AASIST_PATH` to the
-> ~1.2 GB checkpoint (not in git) or `/detect` returns 503.
-
-**Self-hosted deployment** (Nginx + systemd) is scripted in [`deploy/`](deploy/)
-(`setup.sh`, `update.sh`, `DNS_SETUP.md`). Behind NAT, expose the API with a
-userspace tunnel (e.g. `ngrok http 8000`).
+</div>
 
 ---
 
-## Architecture
+## Why VoiceGuard?
 
+AI voice cloning has turned phone fraud into a scalable weapon. In 2024 criminals
+stole **US$25M** from a company using a deepfaked CFO on a video call, and reported
+voice-phishing ("vishing") incidents **surged over 1,600%** in early 2025. Off-the-shelf
+detectors collapse on *real-world* audio — phone codecs, background noise, and unseen
+TTS engines — and offer no explanation a human analyst can act on.
+
+**VoiceGuard** is an end-to-end platform that detects voice deepfakes in real time,
+explains its decisions, watermarks any audio it generates, and ships small enough to
+run at the edge. Built as a graduation project (GP2) at Canadian University Dubai; the
+classical baseline was accepted at **IEEE SM2026**.
+
+## ✨ Features
+
+- 🛡️ **Detection** — production **XLS-R-300M + AASIST** model (eval EER **2.61%**), with DSFNet, Wav2Vec2/WavLM, and a classical XGBoost baseline all selectable. An input-quality guard rejects silent / too-short clips instead of guessing.
+- 🌍 **Real-world robustness** — hardened against out-of-distribution TTS (Kokoro **93.3%**, IndexTTS2 **100%**) and noisy / telephony / short audio.
+- 🔍 **Explainability** — Integrated-Gradients attribution shows *which moments* drove the verdict.
+- 🗣️ **Synthesis + watermarking** — local **Kokoro-82M** TTS that spectrally watermarks every clip as AI-generated.
+- 🧾 **Forensics** — SHA-256 chain-of-custody and NIST SP 800-86 PDF reports.
+- ☎️ **VoIP** — Twilio Media Streams bridge for live call screening.
+- ⚡ **Edge-ready** — ONNX INT8 export at **0.62 MB**, **~30 ms** CPU inference.
+
+## 🖼️ Screenshots
+
+| Detect | Generate | Results |
+|:------:|:--------:|:-------:|
+| ![Detect](assets/screenshots/01_detect.png) | ![Generate](assets/screenshots/03_generate.png) | ![Results](assets/screenshots/04_results.png) |
+
+## 📊 Results
+
+Trained on ASVspoof 2019 LA, evaluated on the full ASVspoof 2021 LA set (181,566 trials).
+
+| Model | EER (eval) | EER (full-pool) | Role |
+|-------|:----------:|:---------------:|------|
+| **XLS-R + AASIST** (Kokoro-hardened) | **2.61%** | 8.21% | 🏆 headline |
+| Wav2Vec2-large | 3.09% | 7.07% | baseline |
+| WavLM-base-plus | 8.11% | — | baseline |
+| AASIST | 10.90% | — | baseline |
+| DSFNet-V2 | — | 12.67% | own architecture |
+
+**Out-of-distribution & real-world:** IndexTTS2 100% · Kokoro 93.3% · genuine-voice
+pass-rate 90% · real-world harness real-pass **87.5%** / fake-detect **90.3%**.
+**Edge:** DSFNetTiny INT8 **0.62 MB**, CPU p50 **30 ms**.
+
+> **Honest note.** The deployed checkpoint is a real-world-robustness fine-tune of the
+> 2.61% Kokoro-hardened model; its ASVspoof EER was not separately benchmarked. PGD
+> adversarial hardening is documented as a *negative result* (see [CHANGELOG](CHANGELOG.md)).
+> The ONNX export validates size/latency with random weights (no trained tiny model yet).
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart LR
+    subgraph Client["React 18 UI"]
+        UI["Detect · Generate · Results"]
+    end
+    subgraph API["FastAPI · JWT · rate-limit · PDPL auto-delete"]
+        D["/detect"]
+        S["/synthesize"]
+        X["/explain"]
+        F["/forensic/report"]
+        W["/ws · /twilio"]
+    end
+    subgraph Engine["Detection Engine"]
+        SSL["XLS-R + AASIST<br/>(production)"]
+        ALT["DSFNet · Wav2Vec2 · classical"]
+    end
+    UI -->|audio| API
+    D --> SSL & ALT
+    X -->|Integrated Gradients| SSL
+    S -->|Kokoro-82M + watermark| MEDIA[("/api/media")]
+    F -->|SHA-256 chain · PDF| MEDIA
+    SSL --> R["label · confidence · explanation"]
+    R --> UI
+    SSL -.ONNX INT8.-> EDGE["Edge (0.62 MB)"]
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     VoiceGuard Platform                  │
-├────────────────┬────────────────┬────────────────────────┤
-│  React 18 UI   │  FastAPI 0.104 │  Twilio WebSocket VoIP │
-│  Vite + Tailwind│  + JWT + TLS  │  (rolling deepfake score│
-├────────────────┴────────────────┴────────────────────────┤
-│                    Detection Engine                       │
-│   XLS-R-300M + AASIST head (production, eval EER 2.61%)  │
-│   + DSFNet / Wav2Vec2 / WavLM (research models)          │
-│   + Enhanced+XGBoost baseline (F1=0.9500, 475 samples)   │
-├──────────────────────────────────────────────────────────┤
-│              Explainability & Forensics                   │
-│   Integrated Gradients (captum) · SHA-256 audit chain    │
-│   NIST SP 800-86 PDF report · spectral watermarking      │
-├──────────────────────────────────────────────────────────┤
-│                  Infrastructure                           │
-│   Nginx + systemd / Docker · local RTX 5090 GPU          │
-│   UAE PDPL compliant (no persistent raw audio, ≤60s TTL) │
-└──────────────────────────────────────────────────────────┘
-```
 
----
-
-## Quick Start
+## 🚀 Quick start
 
 ```bash
-# Clone and launch
 git clone https://github.com/MohammadThabetHassan/VoiceGuard.git
 cd VoiceGuard
-cp .env.example .env          # fill in TWILIO_*, JWT_SECRET, etc.
-docker compose up --build
+
+# Backend (Python 3.12)
+python3 -m venv venv && source venv/bin/activate
+pip install -e .
+
+PYTHONPATH=src SECRET_KEY="$(openssl rand -hex 32)" \
+  uvicorn voiceguard.api.main:app --host 127.0.0.1 --port 8000
+# API docs → http://127.0.0.1:8000/docs   (demo login: admin / voiceguard2026)
+
+# Frontend (in another shell)
+cd frontend && npm ci && npm run dev
 ```
 
-Frontend: http://localhost:3000 · API docs: http://localhost:8000/docs
+The production detector (`xls_r_aasist`) needs a ~1.2 GB checkpoint (not in git);
+without it, set `model=classical` or point `XLS_R_AASIST_PATH` at the checkpoint.
+Self-hosted deployment (Nginx + systemd) is scripted in [`deploy/`](deploy/);
+Docker Compose is also provided.
 
----
+## 🔌 API
 
-## Tech Stack
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|:----:|
+| `POST` | `/token` | OAuth2 password → JWT | — |
+| `POST` | `/detect` | Audio → verdict (`?model=`, `?explain=true`) | 🔑 |
+| `POST` | `/explain` | Integrated-Gradients attribution | 🔑 |
+| `POST` | `/synthesize` | Text → watermarked Kokoro speech | 🔑 |
+| `POST` | `/forensic/report` | NIST SP 800-86 PDF report | 🔑 |
+| `WS` | `/ws/stream` · `/twilio/stream` | Live mic / Twilio call screening | 🔑 |
+| `GET` | `/models` · `/health` · `/docs` | Ops & Swagger | — |
 
-| Layer | Technology |
-|---|---|
-| Detection model (production) | XLS-R-300M + AASIST head (PyTorch, transformers) |
-| Other detectors | DSFNet, AASIST, Wav2Vec2 / WavLM |
-| Classical baseline | XGBoost + hand-crafted 30-D features (librosa) |
-| Backend | FastAPI 0.104+, Python 3.12, JWT, slowapi |
-| Frontend | React 18, Vite, Tailwind CSS |
-| Synthesis | Kokoro-82M (local TTS) + spectral watermarking |
-| XAI | captum (Integrated Gradients) |
-| Edge | ONNX INT8 (DSFNetTiny, 0.62 MB) |
-| VoIP | Twilio Media Streams (WebSocket) |
-| Infrastructure | Nginx + systemd, Docker Compose, GitHub Actions |
-| Security | OWASP ASVS L2, bandit, semgrep |
+## 🛠️ Tech stack
 
----
+**ML** PyTorch · transformers (XLS-R, Wav2Vec2, WavLM) · AASIST · XGBoost · captum · ONNX Runtime
+· **Backend** FastAPI · python-jose (JWT) · slowapi · **Frontend** React 18 · Vite · Tailwind · Recharts
+· **Audio** librosa · torchaudio · Kokoro-82M · **Infra** Nginx + systemd · Docker · GitHub Actions · ruff · bandit
 
-## Edge Deployment (ONNX INT8)
+## 🗺️ Roadmap
 
-`DSFNetTiny` (554K params) is the edge-target detector. Export it and apply
-INT8 dynamic quantization with:
+- [ ] Train `DSFNetTiny` so the ONNX edge export carries accuracy
+- [ ] Backbone adversarial fine-tuning for true PGD robustness
+- [ ] GADC (Gulf-Arabic Deepfake Corpus) + human perception study
+- [ ] Permanent hosted demo
 
-```bash
-python scripts/export_onnx.py            # → checkpoints/onnx/dsfnet_tiny_int8.onnx
-python scripts/export_onnx.py --no-quantize   # fp32 only
-```
+## 🤝 Contributing
 
-Validated export (size and CPU latency are weight-independent):
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and our
+[Code of Conduct](CODE_OF_CONDUCT.md). For vulnerabilities, see [SECURITY.md](SECURITY.md).
 
-| Artifact | Size | CPU latency (p50) | Target |
-|---|---|---|---|
-| `dsfnet_tiny_fp32.onnx` | 2.23 MB | 26 ms | — |
-| `dsfnet_tiny_int8.onnx` | **0.62 MB** | **30 ms** | <2 MB / <200 ms ✓ |
+## 👥 Team
 
-> The export pipeline, file size, and latency targets are validated. Accuracy is
-> **not** claimed here — no trained `DSFNetTiny` checkpoint exists yet, so the
-> export uses random weights for shape/size/latency validation. Pass
-> `--checkpoint <path>` once a tiny model is trained. The `.onnx` artifacts are
-> git-ignored (regenerable); see `checkpoints/onnx/export_report.json`.
+| Name | Role |
+|------|------|
+| **Mohammad Thabet Hassan** | Detection architecture, FastAPI backend, CI/CD, deployment |
+| **Fahad Sadek Al-Jazzeri** | Feature extraction, classical ML, SSL models, evaluation |
+| **Ahmed Sami Alameri** | React frontend, synthesis, watermarking, VoIP, forensics, XAI |
 
----
+**Supervisor:** Dr. Arash Kermani Kolankeh · **Institution:** Canadian University Dubai · **2025–2026**
 
-## Acceptance Criteria
-
-| Metric | Target | Status |
-|---|---|---|
-| Detector EER (ASVspoof 2021 LA, eval partition) | < 0.5% | 2.61% (XLS-R+AASIST; <0.5% not met — see KB Results) |
-| Enhanced+XGBoost F1 (475 samples) | 0.9500 | ✅ 0.9500 (SM2026 published result) |
-| Edge model size (INT8 ONNX) | < 2 MB | ✅ 0.62 MB (`DSFNetTiny`) |
-| Edge inference latency (CPU) | ≤ 200 ms | ✅ p50 30 ms (INT8) |
-| UAE PDPL raw audio retention | ≤ 60 seconds | ✅ background auto-delete |
-
----
-
-## Team
-
-| Name | Student ID | Role |
-|---|---|---|
-| Mohammad Thabet Hassan | 20220002188 | DSFNet architecture, FastAPI backend, CI/CD, Docker |
-| Fahad Sadek Al-Jazzeri | 20220001790 | Feature extraction, classical ML baseline, Wav2Vec2, evaluation |
-| Ahmed Sami Alameri | 20220001166 | React frontend, speech synthesis, watermarking, Twilio VoIP, forensics, XAI |
-
-**Supervisor:** Dr. Arash Kermani Kolankeh
-**Institution:** Canadian University Dubai, Faculty of Engineering and Applied Sciences
-**Academic Year:** 2025–2026
-
----
-
-## Citation
-
-If you use this work, please cite:
+## 📚 Citation
 
 ```bibtex
 @inproceedings{voiceguard2026,
   title     = {VoiceGuard: Real-Time Voice Deepfake Detection and Adversarial
                Speech Synthesis with Explainable AI},
-  author    = {Hassan, Mohammad Thabet and Al-Jazzeri, Fahad Sadek and
-               Alameri, Ahmed Sami},
-  booktitle = {Proceedings of SM2026},
+  author    = {Hassan, Mohammad Thabet and Al-Jazzeri, Fahad Sadek and Alameri, Ahmed Sami},
+  booktitle = {Proceedings of IEEE SM2026},
   year      = {2026},
-  institution = {Canadian University Dubai}
+  organization = {Canadian University Dubai}
 }
 ```
 
----
+## 📄 License
 
-## License
-
-Licensed under the [Apache License 2.0](LICENSE).
+[Apache License 2.0](LICENSE).
