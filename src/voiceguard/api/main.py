@@ -28,6 +28,7 @@ from fastapi import (
     Depends,
     FastAPI,
     File,
+    Form,
     HTTPException,
     Request,
     UploadFile,
@@ -62,12 +63,12 @@ from voiceguard.api.schemas import (
     HealthResponse,
     ModelType,
     StreamDetectionEvent,
-    SynthesisRequest,
+    SynthesisEngineInfo,
     SynthesisResult,
     TokenResponse,
 )
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 # ── Model registry ─────────────────────────────────────────────────────────────
 
@@ -352,44 +353,76 @@ def _schedule_media_cleanup(path: Path) -> None:
     timer.start()
 
 
+@app.get("/synthesis/engines", response_model=list[SynthesisEngineInfo], tags=["synthesis"])
+async def synthesis_engines():
+    """List synthesis engines and their availability (preset TTS + voice cloning)."""
+    from voiceguard.synthesis.registry import registry as synth_registry
+
+    return [SynthesisEngineInfo(**vars(i)) for i in synth_registry.info()]
+
+
 @app.post("/synthesize", response_model=SynthesisResult, tags=["synthesis"])
 @limiter.limit("20/minute")
 async def synthesize(
     request: Request,
-    body: SynthesisRequest,
+    background_tasks: BackgroundTasks,
+    text: str = Form(..., min_length=1, max_length=2000),
+    engine: str = Form("kokoro"),
+    voice: str = Form("af_heart"),
+    language: str = Form("en"),
+    consent: bool = Form(False),  # UX acknowledgement only; gated in the UI
+    reference: UploadFile | None = File(None),
     _user: str = Depends(get_current_user),
 ):
-    """Synthesise speech from text using Kokoro-82M with C2PA watermarking.
+    """Synthesise speech and return a watermarked audio URL.
 
-    Returns a URL to the synthesised (and watermarked) audio file.
+    `engine` selects a preset-voice TTS (Kokoro) or a zero-shot voice-cloning
+    engine. Cloning engines require a `reference` audio clip (PDPL auto-deleted).
+    Every output is spectrally watermarked as AI-generated.
     """
+    import soundfile as sf
     from starlette.concurrency import run_in_threadpool
 
-    from voiceguard.synthesis.kokoro_synth import synthesize_to_file
+    from voiceguard.synthesis.registry import registry as synth_registry
+    from voiceguard.watermark.c2pa_watermark import embed
+
+    eng = synth_registry.get(engine)
+    if eng is None or not eng.is_available():
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=f"Synthesis engine '{engine}' is not available on this instance.",
+        )
+
+    ref_path: str | None = None
+    if eng.requires_reference:
+        if reference is None:
+            raise HTTPException(
+                status_code=422, detail=f"Engine '{engine}' requires a reference audio clip."
+            )
+        ref_path, _ = await save_upload(reference)
+        background_tasks.add_task(pdpl_auto_delete, ref_path)
 
     t0 = time.perf_counter()
     try:
-        fname, watermark_id, _dur = await run_in_threadpool(
-            synthesize_to_file,
-            body.text,
-            str(MEDIA_DIR),
-            body.voice,
-            body.language,
+        audio, sr = await run_in_threadpool(
+            eng.synthesize, text, voice=voice, reference_wav=ref_path, language=language
         )
-    except ImportError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Synthesis engine (Kokoro) is not installed on this instance.",
-        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Synthesis failed: {exc}") from exc
 
-    _schedule_media_cleanup(MEDIA_DIR / fname)
+    watermarked, watermark_id = embed(np.asarray(audio, dtype=np.float32), sr=sr, amplitude=0.01)
+    fname = f"vg_{int(time.time() * 1000)}_{engine}.wav"
+    out_path = MEDIA_DIR / fname
+    sf.write(str(out_path), watermarked, sr)
+    _schedule_media_cleanup(out_path)
     latency_ms = (time.perf_counter() - t0) * 1000
     return SynthesisResult(
         audio_url=f"/api/media/{fname}",
         watermark_id=watermark_id,
         synthesis_latency_ms=round(latency_ms, 2),
+        engine=engine,
     )
 
 

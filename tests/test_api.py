@@ -171,19 +171,49 @@ async def test_explain_missing_checkpoint_returns_503(auth_client, wav_bytes):
 
 
 @pytest.mark.asyncio
-async def test_synthesize_returns_audio_url(auth_client, monkeypatch):
-    # Stub the Kokoro engine so the endpoint contract is tested without the
-    # heavy TTS model / network download in CI.
-    def fake_synth(text, out_dir, voice, language):
-        return "demo.wav", "wm-test-123", 1234.0
+async def test_synthesis_engines_lists_kokoro_and_clone(auth_client):
+    resp = await auth_client.get("/synthesis/engines")
+    assert resp.status_code == 200
+    names = {e["name"] for e in resp.json()}
+    assert "kokoro" in names
+    assert {"indextts2", "xtts"} <= names  # cloning engines listed (may be unavailable)
 
-    monkeypatch.setattr("voiceguard.synthesis.kokoro_synth.synthesize_to_file", fake_synth)
-    resp = await auth_client.post("/synthesize", json={"text": "Hello world"})
+
+@pytest.mark.asyncio
+async def test_synthesize_kokoro(auth_client, monkeypatch):
+    # Stub Kokoro so the contract is tested without the TTS model in CI.
+    import numpy as np
+
+    from voiceguard.synthesis import kokoro_engine
+
+    monkeypatch.setattr(kokoro_engine.KokoroEngine, "is_available", lambda self: True)
+    monkeypatch.setattr(
+        kokoro_engine,
+        "synthesize_raw",
+        lambda text, voice="af_heart", language="en": (np.zeros(16000, dtype=np.float32), 16000),
+    )
+    resp = await auth_client.post("/synthesize", data={"text": "Hello world", "engine": "kokoro"})
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert data["audio_url"].endswith("demo.wav")
-    assert data["watermark_id"] == "wm-test-123"
-    assert data["synthesis_latency_ms"] >= 0
+    assert data["engine"] == "kokoro"
+    assert data["audio_url"].endswith(".wav")
+    assert data["watermark_id"]
+
+
+@pytest.mark.asyncio
+async def test_synthesize_unavailable_engine_501(auth_client):
+    resp = await auth_client.post("/synthesize", data={"text": "hi", "engine": "indextts2"})
+    assert resp.status_code == 501
+
+
+@pytest.mark.asyncio
+async def test_synthesize_clone_requires_reference_422(auth_client, monkeypatch):
+    # Cloning engine "available" but no reference clip provided → 422.
+    from voiceguard.synthesis import clone_engine
+
+    monkeypatch.setattr(clone_engine.IndexTTS2Engine, "is_available", lambda self: True)
+    resp = await auth_client.post("/synthesize", data={"text": "hi", "engine": "indextts2"})
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio

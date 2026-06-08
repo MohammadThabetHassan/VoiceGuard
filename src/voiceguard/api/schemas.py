@@ -59,6 +59,17 @@ class SynthesisResult(BaseModel):
     audio_url: str
     watermark_id: str | None = None
     synthesis_latency_ms: float
+    engine: str = "kokoro"
+
+
+class SynthesisEngineInfo(BaseModel):
+    name: str
+    label: str
+    requires_reference: bool
+    available: bool
+    preset_voices: list[str] = Field(default_factory=list)
+    languages: list[str] = Field(default_factory=lambda: ["en"])
+    description: str = ""
 
 
 class ForensicReportRequest(BaseModel):
