@@ -64,6 +64,7 @@ class CloneEngine(SynthEngine):
         try:
             env = dict(os.environ)
             env["LD_LIBRARY_PATH"] = "/tmp/nvml_fix:" + env.get("LD_LIBRARY_PATH", "")  # noqa: S108  # nosec B108
+            env["COQUI_TOS_AGREED"] = "1"  # accept XTTS non-commercial licence non-interactively
             cmd = [
                 str(self._venv_python()),
                 str(_WORKER),
@@ -109,3 +110,10 @@ class XTTSEngine(CloneEngine):
     worker_key = "xtts"
     languages = ["en", "es", "fr", "de", "it", "pt", "ar", "zh", "ja"]
     description = "Multilingual zero-shot cloning from a short reference clip."
+
+    def is_available(self) -> bool:
+        # XTTS auto-downloads weights, but we still gate on an explicit weights
+        # dir so an unverified install is not silently advertised as ready. To
+        # enable after verifying a clone: create the weights dir (or set
+        # VG_XTTS_WEIGHTS) — `mkdir -p "$VG_SYNTH_HOME/xtts/weights"`.
+        return self._venv_python().exists() and self._weights_dir().exists()
