@@ -1,5 +1,9 @@
 # GPU Training Plan
 
+> **Historical planning doc** (original AWS plan; training actually ran on a local
+> RTX 5090). For final results see the [README](../README.md#-results) and
+> [CHANGELOG](../CHANGELOG.md).
+
 Six sequential runs on a g5.xlarge Spot instance (ap-southeast-1).
 Total estimated cost: ~$27–35 USD.
 Budget cap: $200 USD.

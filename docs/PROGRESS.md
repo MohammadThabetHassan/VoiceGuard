@@ -1,5 +1,8 @@
 # VoiceGuard — Development Progress
 
+> **Historical sprint log.** For current status and results see the
+> [README](../README.md) and [CHANGELOG](../CHANGELOG.md).
+
 ## GP2 Sprint Log
 
 *(entries will be added as development proceeds)*

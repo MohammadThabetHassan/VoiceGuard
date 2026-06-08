@@ -1,49 +1,45 @@
 # VoiceGuard — Evaluation Results
 
-> Results will be updated after GPU training runs complete.
-> See `docs/GPU_TRAINING_PLAN.md` for the training schedule.
+> Canonical results live in the [README](../README.md#-results) and
+> [CHANGELOG](../CHANGELOG.md). This file is a concise summary.
 
-## SM2026 Baseline (Classical ML)
+## Detection (ASVspoof 2021 LA, full 181,566-trial eval)
 
-Evaluated on `osr_features.csv` (474 samples, 237 real/237 fake),
-5-fold stratified cross-validation.
+| Model | EER (eval) | EER (full-pool) | Notes |
+|-------|:----------:|:---------------:|-------|
+| **XLS-R + AASIST** (Kokoro-hardened) | **2.61%** | 8.21% | production headline |
+| Wav2Vec2-large | 3.09% | 7.07% | lowest-EER baseline |
+| WavLM-base-plus | 8.11% | — | baseline |
+| AASIST | 10.90% | — | baseline |
+| DSFNet-V2 | — | 12.67% | own dual-stream architecture |
 
-| Model | Accuracy | F1 | Precision | Recall | EER |
-|-------|----------|----|-----------|--------|-----|
-| Enhanced+XGBoost | 0.9979 | 0.9979 | 0.9958 | 1.0000 | — |
+Metrics: F1 ≈ 0.96, ROC-AUC ≈ 0.98, minDCF (p_target=0.01).
 
-> Published baseline target: F1 ≥ 0.9500 ✓
+## SM2026 classical baseline
 
-## DSFNet (Deep Learning)
+Enhanced+XGBoost on `osr_features.csv` (474 samples, 5-fold CV): **F1 = 0.9500**
+(published, IEEE SM2026).
 
-Evaluated on ASVspoof 2021 LA evaluation set.
-Results to be populated after training run.
+## Out-of-distribution & real-world robustness
 
-| Model | Accuracy | F1 | EER | minDCF | Latency p95 (ms) |
-|-------|----------|----|-----|--------|-----------------|
-| DSFNet (epoch 40) | — | — | — | — | — |
-| Wav2Vec2-base FT | — | — | — | — | — |
+| Metric | Value |
+|--------|:-----:|
+| IndexTTS2 detection | 100% |
+| Kokoro-82M (flow-matching) detection | 93.3% |
+| Genuine-voice pass-rate | 90% |
+| Real-world harness (avg) | real-pass 87.5% / fake-detect 90.3% |
 
-**Target:** EER < 0.5% (fallback: ≤ 1.0%)
+## Edge
 
-## Adversarial Robustness
+DSFNetTiny (554K params) → ONNX INT8 **0.62 MB**, CPU p50 **30 ms** (size/latency
+validated; accuracy pending a trained tiny checkpoint).
 
-PGD adversarial attack (ε=0.01), 3 cycles.
-Results to be populated after adversarial training run.
+## Adversarial robustness (negative result)
 
-| Attack | EER (no defence) | EER (with defence) |
-|--------|------------------|--------------------|
-| PGD ε=0.01 | — | — |
+The deployed model is fragile to PGD (ε=0.01): clean acc 90.7% → PGD acc 0%. A
+frozen-backbone head-only adversarial fine-tune did **not** confer PGD robustness
+and regressed real-world detection, so it was not promoted. True robustness needs
+backbone adversarial fine-tuning — future work.
 
-**Target:** EER ≤ 5% under attack.
-
-## Real-Time Performance
-
-Latency measured on GPU (g5.xlarge, A10G) for 3-second audio windows.
-
-| Model | GPU Latency (ms) | CPU Latency (ms) |
-|-------|-----------------|-----------------|
-| DSFNet | — | — |
-| Wav2Vec2-base FT | — | — |
-
-**Target:** ≤ 200 ms per 3-second window on GPU.
+> **Honest note.** The deployed checkpoint is a real-world-robustness fine-tune of
+> the 2.61% Kokoro-hardened model; its ASVspoof EER was not separately benchmarked.
