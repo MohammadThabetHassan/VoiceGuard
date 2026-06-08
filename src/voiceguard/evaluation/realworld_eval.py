@@ -23,7 +23,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as torch_f
 
 SR = 16000
 TARGET_LEN = SR * 3
@@ -85,7 +85,7 @@ CONDITIONS = {"clean": _clean, "noisy": _noisy, "telephony": _telephony, "short"
 def _to_input(w: np.ndarray) -> torch.Tensor:
     t = torch.from_numpy(w).float()
     if t.shape[0] < TARGET_LEN:
-        t = F.pad(t, (0, TARGET_LEN - t.shape[0]))
+        t = torch_f.pad(t, (0, TARGET_LEN - t.shape[0]))
     else:
         t = t[:TARGET_LEN]
     return t.unsqueeze(0)
