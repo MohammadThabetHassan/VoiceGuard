@@ -24,9 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Detector hardened against voice cloning (v3, deployed).** A frozen-backbone
   head fine-tune from the v2 model, adding XTTS + IndexTTS-2 + Kokoro clone fakes,
   flips XTTS clones from `real ~0.99` to **`fake ~0.97`** while keeping real speech
-  real and IndexTTS-2 caught. Real-world gate: fake-detect 90→94%, real-pass
-  87.5→~85%. The generate→watermark→detect loop now lands as **fake** on XTTS
-  clones too (was a documented OOD gap, like pre-hardening Kokoro).
+  real. Real-world gate: fake-detect 90→94%, real-pass 87.5→~85%.
+- **Cloning engines moved to GPU** (`torch cu128`, RTX 5090): IndexTTS-2 ~25s→~4s.
+- **Known limitation:** *fresh* IndexTTS-2 clones still evade the detector
+  (head-only fine-tune can't separate BigVGAN-vocoder audio from real without
+  hurting real-pass — the v4 head attempt was not deployed). ASVspoof EER is
+  currently unmeasurable (dataset not on disk). See
+  [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md). Next: backbone fine-tune.
 
 ## [1.0.0] - 2026-06-08
 
