@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import {
   ResponsiveContainer,
   BarChart,
@@ -7,6 +8,7 @@ import {
   Tooltip,
   Cell,
 } from 'recharts'
+import { getHistory, clearHistory, type HistoryEntry } from '../services/history'
 
 // Final results — ASVspoof 2021 LA (eval partition), lower EER is better.
 // XLS-R + AASIST (Kokoro-hardened) is the deployed production detector.
@@ -40,6 +42,9 @@ function Stat({ value, label, accent }: { value: string; label: string; accent: 
 }
 
 export default function ResultsTab() {
+  const [history, setHistory] = useState<HistoryEntry[]>([])
+  useEffect(() => setHistory(getHistory()), [])
+
   return (
     <div className="space-y-8">
       <div>
@@ -168,6 +173,69 @@ export default function ResultsTab() {
           ))}
         </div>
         <div className="mt-2 text-xs text-gray-600">Rows: Actual · Columns: Predicted</div>
+      </div>
+
+      {/* Detection history (this browser) */}
+      <div className="bg-gray-800 rounded-xl p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <p className="text-sm text-gray-400">Your recent detections</p>
+          {history.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                clearHistory()
+                setHistory([])
+              }}
+              className="text-xs text-gray-500 transition hover:text-gray-300"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        {history.length === 0 ? (
+          <p className="text-xs text-gray-600">
+            Run detections in the Detect tab to populate this table.
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-gray-700">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-900 text-gray-400">
+                <tr>
+                  {['Time', 'File', 'Verdict', 'Confidence', 'Model'].map((h) => (
+                    <th key={h} className="px-4 py-2 text-left font-medium">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {history.map((h) => (
+                  <tr key={h.ts} className="bg-gray-900/40">
+                    <td className="px-4 py-2 text-gray-400 whitespace-nowrap">
+                      {new Date(h.ts).toLocaleTimeString()}
+                    </td>
+                    <td className="px-4 py-2 text-gray-300 max-w-[12rem] truncate">{h.filename}</td>
+                    <td className="px-4 py-2">
+                      <span
+                        className={
+                          h.label === 'fake'
+                            ? 'text-red-400 font-medium uppercase text-xs'
+                            : 'text-green-400 font-medium uppercase text-xs'
+                        }
+                      >
+                        {h.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 font-mono text-gray-300">
+                      {Math.round(h.confidence * 100)}%
+                    </td>
+                    <td className="px-4 py-2 font-mono text-gray-500 text-xs">{h.model}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )

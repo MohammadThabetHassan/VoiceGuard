@@ -64,6 +64,10 @@ class SynthesisResult(BaseModel):
 class ForensicReportRequest(BaseModel):
     audio_hash: str
     analyst_name: str = Field(default="Automated System")
+    detection_result: dict = Field(
+        default_factory=dict,
+        description="Detection result (label, confidence, model, latency_ms)",
+    )
     include_gradcam: bool = True
     include_shap: bool = True
 

@@ -397,9 +397,31 @@ async def forensic_report(
     _user: str = Depends(get_current_user),
 ):
     """Generate a NIST SP 800-86 compliant PDF forensic report."""
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Forensic PDF generation is implemented in Phase 5.",
+    from voiceguard.forensics.chain_of_custody import ChainOfCustody
+    from voiceguard.forensics.pdf_report import generate_report
+
+    coc = ChainOfCustody()
+    coc.add_event("evidence_received", body.analyst_name, body.audio_hash, "Audio submitted")
+    verdict = str(body.detection_result.get("label", "unknown"))
+    coc.add_event("analysis_completed", "VoiceGuard", body.audio_hash, f"Verdict: {verdict}")
+
+    fname = f"report_{body.audio_hash[:12]}_{int(time.time())}.pdf"
+    out_path = MEDIA_DIR / fname
+    try:
+        generate_report(
+            audio_hash=body.audio_hash,
+            detection_result=body.detection_result,
+            chain_of_custody=coc.to_dict(),
+            analyst_name=body.analyst_name,
+            output_path=out_path,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Report generation failed: {exc}") from exc
+
+    _schedule_media_cleanup(out_path)
+    return ForensicReportResult(
+        report_url=f"/api/media/{fname}",
+        chain_of_custody_hash=coc.chain_hash,
     )
 
 
