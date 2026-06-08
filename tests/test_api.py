@@ -201,7 +201,12 @@ async def test_synthesize_kokoro(auth_client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_synthesize_unavailable_engine_501(auth_client):
+async def test_synthesize_unavailable_engine_501(auth_client, monkeypatch):
+    # Force the cloning engine unavailable so the assertion holds regardless of
+    # whether this host happens to have the (optional, multi-GB) engine installed.
+    from voiceguard.synthesis import clone_engine
+
+    monkeypatch.setattr(clone_engine.IndexTTS2Engine, "is_available", lambda self: False)
     resp = await auth_client.post("/synthesize", data={"text": "hi", "engine": "indextts2"})
     assert resp.status_code == 501
 

@@ -1,8 +1,15 @@
-"""Spectral watermarking stub compatible with C2PA v1.4 metadata embedding.
+"""Spectral (in-signal) watermarking for synthesized audio.
 
-The watermark is embedded as a low-amplitude sinusoidal tone at an inaudible
-frequency (18 kHz), amplitude-modulated by a PRNG sequence seeded from the
-watermark_id.  Detection uses cross-correlation.
+This is the *robust* provenance layer: a low-amplitude sinusoidal tone at an
+inaudible frequency (18 kHz), amplitude-modulated by a PRNG sequence seeded from
+the watermark_id; detection uses cross-correlation. Because the mark lives in the
+audio signal itself, it survives lossy re-encoding and playback-recapture that
+strip file metadata.
+
+This is distinct from — and complementary to — the *cryptographic* provenance
+layer in ``c2pa_sign``, which embeds a real, signed C2PA manifest (metadata) into
+the file. The synthesis API applies both: the C2PA manifest for verifiable,
+standards-compliant provenance and this spectral mark for re-encode robustness.
 """
 
 from __future__ import annotations

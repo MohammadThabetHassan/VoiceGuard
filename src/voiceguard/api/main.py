@@ -384,6 +384,7 @@ async def synthesize(
     from starlette.concurrency import run_in_threadpool
 
     from voiceguard.synthesis.registry import registry as synth_registry
+    from voiceguard.watermark import c2pa_sign
     from voiceguard.watermark.c2pa_watermark import embed
 
     eng = synth_registry.get(engine)
@@ -416,6 +417,20 @@ async def synthesize(
     fname = f"vg_{int(time.time() * 1000)}_{engine}.wav"
     out_path = MEDIA_DIR / fname
     sf.write(str(out_path), watermarked, sr)
+
+    # Cryptographic C2PA provenance: sign the file with a real, signed manifest
+    # marking it AI-generated (trainedAlgorithmicMedia) — on top of the spectral
+    # watermark. Best-effort: if the c2pa runtime is unavailable the spectral mark
+    # alone still ships.
+    signed_tmp = out_path.with_suffix(".signed.wav")
+    c2pa_status = c2pa_sign.sign_file(
+        str(out_path), str(signed_tmp), software_agent=f"VoiceGuard/{engine}"
+    )
+    if c2pa_status.get("signed") and signed_tmp.exists():
+        os.replace(str(signed_tmp), str(out_path))
+    else:
+        signed_tmp.unlink(missing_ok=True)
+
     _schedule_media_cleanup(out_path)
     latency_ms = (time.perf_counter() - t0) * 1000
     return SynthesisResult(
@@ -423,6 +438,7 @@ async def synthesize(
         watermark_id=watermark_id,
         synthesis_latency_ms=round(latency_ms, 2),
         engine=engine,
+        c2pa_signed=bool(c2pa_status.get("signed")),
     )
 
 

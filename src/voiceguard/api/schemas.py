@@ -60,6 +60,9 @@ class SynthesisResult(BaseModel):
     watermark_id: str | None = None
     synthesis_latency_ms: float
     engine: str = "kokoro"
+    # Cryptographic C2PA provenance (signed manifest) embedded in the output, in
+    # addition to the spectral watermark. False if the c2pa runtime is unavailable.
+    c2pa_signed: bool = False
 
 
 class SynthesisEngineInfo(BaseModel):
