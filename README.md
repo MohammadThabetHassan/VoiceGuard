@@ -44,7 +44,7 @@ classical baseline was accepted at **IEEE SM2026**.
 - 🛡️ **Detection** — production **XLS-R-300M + AASIST** model (eval EER **2.61%**), with DSFNet, Wav2Vec2/WavLM, and a classical XGBoost baseline all selectable. An input-quality guard rejects silent / too-short clips instead of guessing.
 - 🌍 **Real-world robustness** — hardened against out-of-distribution TTS (Kokoro **93.3%**, IndexTTS2 **100%**) and noisy / telephony / short audio.
 - 🔍 **Explainability** — Integrated-Gradients attribution shows *which moments* drove the verdict.
-- 🗣️ **Synthesis + watermarking** — local **Kokoro-82M** TTS that spectrally watermarks every clip as AI-generated.
+- 🗣️ **Synthesis + watermarking** — multi-engine Generate: local **Kokoro-82M** preset voices and optional **zero-shot voice cloning** (XTTS v2 / IndexTTS-2) from a reference clip; every clip is spectrally watermarked as AI-generated and can be tested back through the detector. See [docs/SYNTHESIS_ENGINES.md](docs/SYNTHESIS_ENGINES.md).
 - 🧾 **Forensics** — SHA-256 chain-of-custody and NIST SP 800-86 PDF reports.
 - ☎️ **VoIP** — Twilio Media Streams bridge for live call screening.
 - ⚡ **Edge-ready** — ONNX INT8 export at **0.62 MB**, **~30 ms** CPU inference.

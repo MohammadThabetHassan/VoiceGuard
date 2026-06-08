@@ -5,6 +5,23 @@ All notable changes to VoiceGuard are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Multi-engine Generate with zero-shot voice cloning.** A `SynthEngine`
+  registry powers `GET /synthesis/engines`; `POST /synthesize` is now multipart
+  with engine selection and an optional reference clip. Kokoro runs in-process;
+  **XTTS v2** and **IndexTTS-2** cloning engines run in isolated venvs
+  (subprocess) and degrade gracefully when not installed — see
+  [docs/SYNTHESIS_ENGINES.md](docs/SYNTHESIS_ENGINES.md).
+- Generate UI: engine picker, preset-voice selector, reference upload +
+  authorization gate, and a **"Test against detector"** button closing the
+  generate → watermark → detect loop.
+
+### Notes
+- Cloning engines are opt-in (install the engine venv to enable). XTTS weights
+  are CPML (non-commercial).
+
 ## [1.0.0] - 2026-06-08
 
 First public release: a full voice-deepfake detection, synthesis-watermarking,
