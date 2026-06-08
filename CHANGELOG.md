@@ -26,11 +26,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flips XTTS clones from `real ~0.99` to **`fake ~0.97`** while keeping real speech
   real. Real-world gate: fake-detect 90→94%, real-pass 87.5→~85%.
 - **Cloning engines moved to GPU** (`torch cu128`, RTX 5090): IndexTTS-2 ~25s→~4s.
-- **Known limitation:** *fresh* IndexTTS-2 clones still evade the detector
-  (head-only fine-tune can't separate BigVGAN-vocoder audio from real without
-  hurting real-pass — the v4 head attempt was not deployed). ASVspoof EER is
-  currently unmeasurable (dataset not on disk). See
-  [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md). Next: backbone fine-tune.
+- **Unified anchored model (v6, deployed).** Built a trustworthy speaker/text-disjoint
+  held-out eval and trained an anchored fine-tune (ASVspoof-balanced + diverse
+  Kokoro/XTTS/IndexTTS-2 clones + LibriSpeech reals, top-6 XLS-R layers unfrozen).
+  Held-out: real-pass 100%, Kokoro 100%, XTTS 90%, **IndexTTS-2 60→63%**, ASVspoof-
+  balanced EER ~29%. Marginal gain over v3, no regression → deployed.
+- **Honest limits:** IndexTTS-2 (BigVGAN, near-real) sits near the detectability
+  ceiling (~60%) for this front-end — more clones/training barely move it.
+  **EER < 2% is not currently achievable**: the official ASVspoof 2021 LA eval
+  (where 2.61% was measured) is off-disk; the obtainable *balanced* mirror is a
+  different, harder ruler (~29% for this lineage). See
+  [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
 ## [1.0.0] - 2026-06-08
 

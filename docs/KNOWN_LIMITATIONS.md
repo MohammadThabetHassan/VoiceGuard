@@ -52,3 +52,36 @@ The ASVspoof 2019 (train) and 2021 LA (eval) tensors are **no longer on disk**
 - Cloning engines (XTTS, IndexTTS-2) now run on **GPU** (`torch cu128`, RTX 5090):
   IndexTTS-2 ~25s→~4s per clip (RTF 0.86). Engines live in isolated venvs under
   `~/.voiceguard/synth` (durable). See [SYNTHESIS_ENGINES](SYNTHESIS_ENGINES.md).
+
+## 2026-06-08 — trustworthy held-out eval + unified model (v6, DEPLOYED)
+A proper **speaker/text-disjoint** eval was built (20 eval LibriSpeech speakers
+held out from 20 train; 50 real + 30 XTTS + 30 IndexTTS-2 + 8 Kokoro held-out
+clones, plus a 600/600 ASVspoof-balanced test slice). This **corrected earlier
+noisy conclusions** (the old 16-clip eval included ALSA test tones).
+
+A **unified anchored fine-tune** (`train_unified.py`): from v3, top-6 XLS-R layers
+unfrozen, trained on ASVspoof-balanced (2500 real + 2500 fake) + diverse train
+clones (120 IndexTTS-2 w/ emotion + 80 XTTS + 20 Kokoro) + 700 LibriSpeech reals.
+
+| held-out metric | v3 (floor) | **v6 (deployed)** |
+|-----------------|:----------:|:-----------------:|
+| real-pass | 98% | **100%** |
+| Kokoro detect | 100% | 100% |
+| XTTS detect | 90% | 90% |
+| **IndexTTS-2 detect** | 60% | **63%** |
+| ASVspoof-balanced EER | 29.3% | 29.0% |
+
+**Findings (honest):**
+- **IndexTTS-2 is near the detectability ceiling (~60%)** for this XLS-R front-end:
+  even 120 diverse clones + backbone unfreeze + anchor moved it only 60→63%
+  (within eval noise). Cracking it likely needs a **different/stronger anti-spoof
+  front-end** specialised for near-real (BigVGAN) vocoders, not more data here.
+- **EER < 2% was NOT achieved and is not currently achievable:** the official
+  ASVspoof 2021 LA eval (where 2.61% was measured) is off-disk; on the obtainable
+  *balanced* mirror the whole robustness-tuned lineage sits at ~29% EER (a
+  different, harder ruler — not comparable to 2.61%). A genuine low-EER model
+  needs the **official ASVspoof protocol + a from-scratch SSL fine-tune**, not a
+  head/top-layer tweak of a robustness derivative.
+- **v6 is a marginal, gated improvement** (better real-pass, slightly better
+  IndexTTS-2, no regression) → deployed as the new production checkpoint.
+  Kokoro/XTTS clones are caught reliably; IndexTTS-2 remains a partial (~60%) catch.
