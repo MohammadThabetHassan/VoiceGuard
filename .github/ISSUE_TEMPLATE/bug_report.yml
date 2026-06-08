@@ -1,0 +1,54 @@
+name: 🐛 Bug report
+description: Report a problem with VoiceGuard
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. For **security vulnerabilities**, do not file here — see [SECURITY.md](../blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+      placeholder: When I call /detect with ..., I get ... but expected ...
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps (commands, request payloads) to reproduce.
+      placeholder: |
+        1. Start the API with ...
+        2. POST /detect with ...
+        3. See error
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Detection (/detect, models)
+        - Synthesis (/synthesize)
+        - Forensics / XAI
+        - API / auth
+        - Frontend
+        - Deployment / CI
+        - Training / evaluation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, GPU (if any), and how you're running it.
+      placeholder: "Ubuntu 24.04, Python 3.12, RTX 4090, uvicorn"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / traceback
+      render: shell

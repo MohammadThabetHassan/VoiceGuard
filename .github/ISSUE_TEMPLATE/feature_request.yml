@@ -1,0 +1,38 @@
+name: 💡 Feature request
+description: Suggest an idea or enhancement for VoiceGuard
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What problem would this solve? Who benefits?
+      placeholder: It's hard to ... because ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you'd like to see happen.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Detection model / accuracy
+        - Robustness (OOD / adversarial)
+        - Synthesis / watermarking
+        - API / frontend
+        - Deployment / edge (ONNX)
+        - Docs / DX
+        - Other
+    validations:
+      required: true
