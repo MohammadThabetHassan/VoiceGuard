@@ -23,7 +23,7 @@ export default function GenerateTab() {
       if (e instanceof ApiError) {
         setError(
           e.status === 501
-            ? 'Voice synthesis (Coqui XTTS v2) runs on the GPU build of VoiceGuard and ' +
+            ? 'Voice synthesis (Kokoro-82M) runs on the full build of VoiceGuard and ' +
                 'is not enabled on this instance. Detection is fully available.'
             : e.message,
         )
@@ -40,7 +40,7 @@ export default function GenerateTab() {
       <div>
         <h2 className="text-xl font-semibold text-white mb-1">Synthesise Voice</h2>
         <p className="text-sm text-gray-400">
-          Uses Coqui XTTS v2 with C2PA v1.4 spectral watermarking.
+          Uses local Kokoro-82M TTS with C2PA-style spectral watermarking.
           All synthesised audio is cryptographically marked as AI-generated.
         </p>
       </div>
@@ -62,7 +62,7 @@ export default function GenerateTab() {
         <div>
           <label className="block text-xs text-gray-500 mb-1">Engine</label>
           <select className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-gray-300 text-sm">
-            <option value="xtts_v2">Coqui XTTS v2</option>
+            <option value="kokoro">Kokoro-82M (local)</option>
           </select>
         </div>
         <div>

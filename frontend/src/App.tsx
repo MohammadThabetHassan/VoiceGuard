@@ -31,7 +31,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-3">
             <LoginControl />
-            <span className="text-xs text-gray-600 font-mono">v0.1.0</span>
+            <span className="text-xs text-gray-600 font-mono">v1.0.0</span>
           </div>
         </div>
       </header>

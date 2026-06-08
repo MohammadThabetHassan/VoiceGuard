@@ -7,7 +7,7 @@ export type SynthesisResult = {
 }
 
 /**
- * Synthesise speech from text (XTTS v2 + C2PA watermark on the backend).
+ * Synthesise speech from text (Kokoro-82M + C2PA watermark on the backend).
  * @throws ApiError — notably status 501 when the GPU synthesis stack is
  *         unavailable on the current backend.
  */
