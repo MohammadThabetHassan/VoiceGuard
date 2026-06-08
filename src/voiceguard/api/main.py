@@ -490,7 +490,7 @@ async def websocket_stream(websocket: WebSocket, token: str = ""):
 
                 audio = np.frombuffer(window, dtype=np.int16).astype(np.float32) / 32768.0
 
-                label, confidence = _detect_classical_array(audio, sr=16000)
+                label, confidence = _detect_ssl_array(audio, 16000)
 
                 event = StreamDetectionEvent(
                     timestamp_ms=time.time() * 1000,
@@ -591,3 +591,32 @@ def _detect_classical_array(audio: np.ndarray, sr: int) -> tuple[str, float]:
     if detector is None:
         return "real", 0.5
     return detector.predict_features(features)
+
+
+def _detect_ssl_array(
+    audio: np.ndarray, sr: int, model_key: str = "xls_r_aasist"
+) -> tuple[str, float]:
+    """Score a raw audio window with the SSL production detector (live streaming).
+
+    Falls back to the lightweight classical detector if the SSL checkpoint is
+    unavailable, so the stream degrades gracefully instead of failing.
+    """
+    import torch
+    import torchaudio
+
+    model = registry.load(model_key)
+    if model is None:
+        return _detect_classical_array(audio, sr)
+    wav = torch.as_tensor(np.asarray(audio, dtype=np.float32)).reshape(1, -1)
+    if sr != 16000:
+        wav = torchaudio.functional.resample(wav, sr, 16000)
+    target_len = 48000
+    if wav.shape[-1] < target_len:
+        wav = torch.nn.functional.pad(wav, (0, target_len - wav.shape[-1]))
+    else:
+        wav = wav[..., :target_len]
+    with torch.no_grad():
+        probs = torch.softmax(model(wav), dim=-1)[0]  # SSL models take (B, T)
+    fake_prob = float(probs[1])
+    label = "fake" if fake_prob >= 0.5 else "real"
+    return label, round(fake_prob if label == "fake" else float(probs[0]), 4)
