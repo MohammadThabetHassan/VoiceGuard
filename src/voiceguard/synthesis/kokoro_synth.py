@@ -36,6 +36,26 @@ def _get_pipeline(lang_code: str = "a"):
     return _pipeline
 
 
+def synthesize_raw(
+    text: str,
+    voice: str = "af_heart",
+    language: str = "en",
+    speed: float = 1.0,
+) -> tuple[np.ndarray, int]:
+    """Synthesise *text* and return (float32 audio, sample_rate) — no watermark.
+
+    This is the single Kokoro inference path, used by both the synthesis engine
+    and the legacy `synthesize_to_file` wrapper. Raises ValueError on empty audio.
+    """
+    if voice not in VOICES:
+        voice = "af_heart"
+    pipe = _get_pipeline(_LANG_CODE.get(language.lower(), "a"))
+    chunks = [np.asarray(a, dtype=np.float32) for _, _, a in pipe(text, voice=voice, speed=speed)]
+    if not chunks:
+        raise ValueError("Synthesis produced no audio")
+    return np.concatenate(chunks).astype(np.float32), KOKORO_SR
+
+
 def synthesize_to_file(
     text: str,
     out_dir: str | Path,
@@ -48,13 +68,7 @@ def synthesize_to_file(
     Returns (filename, watermark_id, duration_ms). Raises ValueError if the
     engine produced no audio or the voice is unknown.
     """
-    if voice not in VOICES:
-        voice = "af_heart"
-    pipe = _get_pipeline(_LANG_CODE.get(language.lower(), "a"))
-    chunks = [np.asarray(a, dtype=np.float32) for _, _, a in pipe(text, voice=voice, speed=speed)]
-    if not chunks:
-        raise ValueError("Synthesis produced no audio")
-    audio = np.concatenate(chunks).astype(np.float32)
+    audio, _sr = synthesize_raw(text, voice=voice, language=language, speed=speed)
 
     # C2PA spectral watermark marking the clip as AI-generated. Amplitude is set
     # high enough to stay reliably verifiable while remaining unobtrusive.
