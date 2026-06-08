@@ -94,9 +94,12 @@ async def test_detect_requires_auth(wav_bytes):
 
 @pytest.mark.asyncio
 async def test_detect_wav(auth_client, wav_bytes):
+    # Use the lightweight classical detector — the SSL default (xls_r_aasist)
+    # needs a ~1.2GB checkpoint that is not present in CI.
     resp = await auth_client.post(
         "/detect",
         files={"file": ("test.wav", wav_bytes, "audio/wav")},
+        params={"model": "classical"},
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -164,19 +167,32 @@ async def test_explain_missing_checkpoint_returns_503(auth_client, wav_bytes):
     assert resp.status_code == 503
 
 
-# ── Synthesis / forensics (501 stub) ──────────────────────────────────────────
+# ── Synthesis / forensics ──────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_synthesize_returns_501(auth_client):
+async def test_synthesize_returns_audio_url(auth_client, monkeypatch):
+    # Stub the Kokoro engine so the endpoint contract is tested without the
+    # heavy TTS model / network download in CI.
+    def fake_synth(text, out_dir, voice, language):
+        return "demo.wav", "wm-test-123", 1234.0
+
+    monkeypatch.setattr("voiceguard.synthesis.kokoro_synth.synthesize_to_file", fake_synth)
     resp = await auth_client.post("/synthesize", json={"text": "Hello world"})
-    assert resp.status_code == 501
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["audio_url"].endswith("demo.wav")
+    assert data["watermark_id"] == "wm-test-123"
+    assert data["synthesis_latency_ms"] >= 0
 
 
 @pytest.mark.asyncio
-async def test_forensic_report_returns_501(auth_client):
+async def test_forensic_report_returns_pdf_url(auth_client):
     resp = await auth_client.post(
         "/forensic/report",
         json={"audio_hash": "a" * 64},
     )
-    assert resp.status_code == 501
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["report_url"].endswith(".pdf")
+    assert len(data["chain_of_custody_hash"]) == 64  # SHA-256 hex

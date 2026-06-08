@@ -127,7 +127,7 @@ app.add_middleware(
 
 # Synthesised audio is written here and served at /media (i.e. /api/media/<f>
 # once behind Nginx or the demo's /api mount). Auto-deleted after MEDIA_TTL_S.
-MEDIA_DIR = Path(os.environ.get("VG_MEDIA_DIR", "/tmp/voiceguard_media"))  # noqa: S108
+MEDIA_DIR = Path(os.environ.get("VG_MEDIA_DIR", "/tmp/voiceguard_media"))  # noqa: S108  # nosec B108
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 MEDIA_TTL_S = int(os.environ.get("VG_MEDIA_TTL_S", "900"))
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
@@ -345,7 +345,11 @@ def _schedule_media_cleanup(path: Path) -> None:
         except OSError:
             pass
 
-    threading.Timer(MEDIA_TTL_S, _rm).start()
+    # Daemon timer: a pending best-effort cleanup must never block process
+    # shutdown (otherwise the API — and the test suite — hangs for MEDIA_TTL_S).
+    timer = threading.Timer(MEDIA_TTL_S, _rm)
+    timer.daemon = True
+    timer.start()
 
 
 @app.post("/synthesize", response_model=SynthesisResult, tags=["synthesis"])
