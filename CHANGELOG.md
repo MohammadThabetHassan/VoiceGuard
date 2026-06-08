@@ -21,11 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Notes
 - Cloning engines are opt-in (install the engine venv to enable). XTTS weights
   are CPML (non-commercial).
-- **Verified end-to-end**: an XTTS clone runs and the generate→detect loop works.
-  Finding: the current production detector classifies XTTS clones as **real**
-  (~0.99) — a new out-of-distribution gap (like pre-hardening Kokoro) that
-  motivates XTTS-hardening. IndexTTS-2 clones are caught (~100%), so that engine
-  is preferred for the "Test against detector" demo.
+- **Detector hardened against voice cloning (v3, deployed).** A frozen-backbone
+  head fine-tune from the v2 model, adding XTTS + IndexTTS-2 + Kokoro clone fakes,
+  flips XTTS clones from `real ~0.99` to **`fake ~0.97`** while keeping real speech
+  real and IndexTTS-2 caught. Real-world gate: fake-detect 90→94%, real-pass
+  87.5→~85%. The generate→watermark→detect loop now lands as **fake** on XTTS
+  clones too (was a documented OOD gap, like pre-hardening Kokoro).
 
 ## [1.0.0] - 2026-06-08
 
