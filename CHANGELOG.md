@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **🏆 v7 — unified detector that catches all clone families (deployed).** Trained
+  from the 2.61% base on the full ASVspoof-balanced anchor + a large diverse clone
+  corpus (520 IndexTTS-2 + 280 XTTS + Kokoro, cloned from ASVspoof-real speakers to
+  force vocoder-artifact learning), top-12 XLS-R layers unfrozen, 12 epochs. On the
+  frozen speaker/text-disjoint held-out set: real-pass **96%**, Kokoro **100%**,
+  XTTS **100%**, **IndexTTS-2 96.7%** (was 60%), ASVspoof-balanced EER **9.25%**
+  (was ~31%). Live: held-out IndexTTS-2/XTTS → fake 1.00, real → real 0.999.
+  Supersedes v3/v6 and disproves the earlier "IndexTTS-2 ceiling".
 - **Multi-engine Generate with zero-shot voice cloning.** A `SynthEngine`
   registry powers `GET /synthesis/engines`; `POST /synthesize` is now multipart
   with engine selection and an optional reference clip. Kokoro runs in-process;

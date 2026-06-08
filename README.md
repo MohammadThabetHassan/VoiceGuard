@@ -67,12 +67,15 @@ Trained on ASVspoof 2019 LA, evaluated on the full ASVspoof 2021 LA set (181,566
 | AASIST | 10.90% | — | baseline |
 | DSFNet-V2 | — | 12.67% | own architecture |
 
-**Out-of-distribution & real-world:** IndexTTS2 100% · Kokoro 93.3% · genuine-voice
-pass-rate 90% · real-world harness real-pass **87.5%** / fake-detect **90.3%**.
-**Edge:** DSFNetTiny INT8 **0.62 MB**, CPU p50 **30 ms**.
+**Voice-cloning detection (deployed model "v7", speaker/text-disjoint held-out):**
+Kokoro **100%** · XTTS **100%** · **IndexTTS-2 96.7%** · genuine-voice real-pass
+**96%** · ASVspoof-balanced EER **9.25%**. **Edge:** DSFNetTiny INT8 **0.62 MB**,
+CPU p50 **30 ms**.
 
-> **Honest note.** The deployed checkpoint is a real-world-robustness fine-tune of the
-> 2.61% Kokoro-hardened model; its ASVspoof EER was not separately benchmarked. PGD
+> **Honest note.** "v7" is trained/measured on an obtainable *balanced* 2021-LA
+> mirror — its **9.25% EER is a different, harder ruler** than the official 2021-LA
+> eval where the **2.61%** headline was measured (that dataset is currently off-disk),
+> so the two EERs are not directly comparable. PGD
 > adversarial hardening is documented as a *negative result* (see [CHANGELOG](CHANGELOG.md)).
 > The ONNX export validates size/latency with random weights (no trained tiny model yet).
 

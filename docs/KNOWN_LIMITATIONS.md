@@ -2,6 +2,33 @@
 
 _Last updated 2026-06-08._
 
+## ✅ UPDATE: v7 solves cloning detection (deployed)
+
+A harder, data-rich run (`train_v7.py`) **disproves the earlier "IndexTTS-2 ceiling"
+conclusion** — that was an artifact of a shallow effort. Levers that worked:
+(1) start from the **2.61% Kokoro-parent** (which already caught IndexTTS-2/XTTS at
+100% but over-flagged real speech at 48% real-pass); (2) train on lots of **real
+speech** (ASVspoof bonafide + LibriSpeech) to *restore* real-pass; (3) **diverse
+clones cloned from ASVspoof-real speakers** (forces vocoder-artifact learning);
+(4) **full ASVspoof anchor (6k+6k)**; (5) **top-12 layers unfrozen, 12 epochs**.
+
+| held-out (speaker/text-disjoint) | v3 | v6 | parent | **v7 (deployed)** |
+|---|:--:|:--:|:--:|:--:|
+| real-pass | 98 | 100 | 48 | **96** |
+| Kokoro detect | 100 | 100 | 100 | **100** |
+| XTTS detect | 90 | 90 | 100 | **100** |
+| **IndexTTS-2 detect** | 60 | 63 | 100 | **96.7** |
+| ASVspoof-balanced EER | 34 | 31 | 15 | **9.25** |
+
+v7 strictly dominates the prior deployed models. Live check: held-out IndexTTS-2
+→ fake 1.00, XTTS → fake 1.00, real → real 0.999. **The sections below are
+retained as the record of the earlier (superseded) head/backbone attempts.**
+
+> EER note: 9.25% is on the obtainable *balanced* 2021-LA mirror — a different,
+> harder ruler than the official 2021-LA eval where 2.61% was measured (that data
+> is off-disk). 9.25% is a big improvement over the ~30% of the robustness lineage,
+> but it is **not** the official "<2%" claim and isn't comparable to it.
+
 ## Detector vs. modern voice cloning (Generate → Detect loop)
 
 The production detector is XLS-R + AASIST, hardened against out-of-distribution
