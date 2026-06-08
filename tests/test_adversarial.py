@@ -93,3 +93,33 @@ def test_pgd_zero_epsilon_identity(model_and_inputs):
     model, waveform, labels = model_and_inputs
     adv = pgd_attack(model, waveform, labels, epsilon=0.0, alpha=0.0, n_steps=3, random_start=False)  # noqa: E501
     assert torch.allclose(adv, waveform, atol=1e-6)
+
+
+def test_measure_robustness_keys_and_ranges(model_and_inputs):
+    from voiceguard.evaluation.adversarial_eval import measure_robustness
+
+    model, waveform, labels = model_and_inputs
+    res = measure_robustness(model, waveform, labels, epsilon=0.01, pgd_steps=2, batch_size=2)
+    assert set(res) >= {"n", "clean_acc", "fgsm_acc", "pgd_acc", "epsilon", "pgd_steps"}
+    assert res["n"] == waveform.shape[0]
+    for k in ("clean_acc", "fgsm_acc", "pgd_acc"):
+        assert 0.0 <= res[k] <= 1.0
+
+
+def test_measure_robustness_zero_epsilon_matches_clean(model_and_inputs):
+    """With epsilon=0 the attacks are no-ops, so all three accuracies are equal."""
+    from voiceguard.evaluation.adversarial_eval import measure_robustness
+
+    model, waveform, labels = model_and_inputs
+    res = measure_robustness(
+        model, waveform, labels, epsilon=0.0, alpha=0.0, pgd_steps=2, batch_size=2
+    )
+    assert res["clean_acc"] == res["fgsm_acc"] == res["pgd_acc"]
+
+
+def test_measure_robustness_mismatched_shapes_raise(model_and_inputs):
+    from voiceguard.evaluation.adversarial_eval import measure_robustness
+
+    model, waveform, labels = model_and_inputs
+    with pytest.raises(ValueError, match="align"):
+        measure_robustness(model, waveform, labels[:1])
