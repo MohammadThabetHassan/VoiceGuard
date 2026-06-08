@@ -23,12 +23,12 @@ export default function GenerateTab() {
       if (e instanceof ApiError) {
         setError(
           e.status === 501
-            ? 'Speech synthesis requires GPU (Coqui XTTS v2). ' +
-                'Not available on the current CPU instance. Run the GPU training plan first.'
+            ? 'Voice synthesis (Coqui XTTS v2) runs on the GPU build of VoiceGuard and ' +
+                'is not enabled on this instance. Detection is fully available.'
             : e.message,
         )
       } else {
-        setError('Network error — is the API running? (set it via the ⚙ button)')
+        setError('Could not reach the synthesis API. Please try again in a moment.')
       }
     } finally {
       setLoading(false)

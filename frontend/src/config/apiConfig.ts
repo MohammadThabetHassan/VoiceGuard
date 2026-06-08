@@ -53,5 +53,8 @@ export const apiFetch = (path: string, init: RequestInit = {}): Promise<Response
   const token = getToken()
   const headers = new Headers(init.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
+  // Bypass the ngrok free-tier browser-warning interstitial on API responses
+  // (ignored by Nginx in the normal self-hosted deployment).
+  headers.set('ngrok-skip-browser-warning', 'true')
   return fetch(`${API_BASE}${path}`, { ...init, headers })
 }

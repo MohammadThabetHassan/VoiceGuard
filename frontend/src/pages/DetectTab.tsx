@@ -35,9 +35,13 @@ export default function DetectTab() {
       setResult(data)
     } catch (e) {
       if (e instanceof ApiError) {
-        setError(e.status === 401 ? 'Not authenticated. Please log in first.' : e.message)
+        setError(
+          e.status === 401
+            ? 'Not authenticated — use the Log in button (top-right) first.'
+            : e.message,
+        )
       } else {
-        setError('Network error — is the API running? (set it via the ⚙ button)')
+        setError('Could not reach the detection API. Please try again in a moment.')
       }
     } finally {
       setLoading(false)
@@ -114,12 +118,18 @@ export default function DetectTab() {
             ))}
           </div>
 
-          {/* Grad-CAM placeholder */}
-          <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
-            <p className="text-sm text-gray-400 mb-2">Spectrogram + Grad-CAM overlay</p>
-            <div className="h-32 bg-gray-900 rounded flex items-center justify-center text-gray-600 text-sm">
-              Available after DSFNet training (Phase 2 GPU run)
-            </div>
+          {/* Verdict explainer */}
+          <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+            <p className="text-sm font-medium text-gray-300 mb-1">
+              {result.label === 'fake'
+                ? 'This audio shows synthetic-speech artifacts.'
+                : 'This audio is consistent with genuine human speech.'}
+            </p>
+            <p className="text-xs text-gray-500">
+              Scored by the {result.model} detector (XLS-R self-supervised front-end + AASIST
+              graph-attention back-end). The uploaded audio is automatically deleted within 60
+              seconds for privacy (PDPL).
+            </p>
           </div>
         </div>
       )}
