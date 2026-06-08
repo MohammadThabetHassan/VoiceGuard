@@ -5,48 +5,43 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 **VoiceGuard** is an AI-powered platform for real-time voice deepfake detection,
-adversarial speech synthesis, and vishing (voice phishing) defence. It combines
-a novel Dual-Stream Fusion Network (DSFNet) trained on ASVspoof 2021 LA with a
-validated classical baseline (Enhanced+XGBoost, F1=0.9500), explainable AI
-outputs (Grad-CAM, SHAP), C2PA v1.4 watermarking on synthesised audio, and a
-Twilio WebSocket pipeline for live call interception — all delivered through a
-FastAPI backend and React 18 frontend in a single Docker Compose deployment.
+adversarial speech synthesis, and vishing (voice phishing) defence. The
+production detector is an **XLS-R-300M + AASIST** model (headline eval EER 2.61%
+on ASVspoof 2021 LA), alongside a validated classical baseline (Enhanced+XGBoost,
+F1=0.9500) and the dual-stream DSFNet (research/edge model). It adds explainable
+AI (Integrated Gradients), local **Kokoro-82M** synthesis with spectral
+watermarking, and a Twilio WebSocket pipeline for live call interception — all
+delivered through a FastAPI backend and React 18 frontend (self-hosted
+Nginx + systemd; Docker Compose also provided).
 
 Developed as a graduation project (GP2) at the Canadian University Dubai, in
 fulfilment of the requirements for the Bachelor of Science in Computer Science.
 
 ---
 
-## Live Demo
+## Running it
 
-**Frontend:** https://mohammadthabethassan.github.io/VoiceGuard/
+The frontend and API are served **same-origin** (`/api`): the React build is
+static and the FastAPI backend runs locally — no audio leaves the host.
 
-The hosted frontend is **static** — it runs entirely in your browser and talks
-directly to a FastAPI backend running **on your own machine**. No audio is sent
-to any remote server; all inference stays local.
-
-**To use it with your local model:**
-
-1. Install backend dependencies and start the API:
+1. Start the API (deps installed; the package is run via `PYTHONPATH`):
    ```bash
-   pip install -e .
-   uvicorn voiceguard.api.main:app --host 0.0.0.0 --port 8000
+   PYTHONPATH=src \
+   XLS_R_AASIST_PATH=models/xls_r_aasist.pt \
+   SECRET_KEY="$(openssl rand -hex 32)" \
+   uvicorn voiceguard.api.main:app --host 127.0.0.1 --port 8000
    ```
-2. Open the live demo, click the **⚙ gear** (bottom-right), enter your API URL
-   (e.g. `http://localhost:8000`), and click **Test Connection** (✅ = reachable).
-3. The Detect and Generate tabs now run against your local backend.
+2. Build & serve the frontend against `/api` (or use the combined dev server).
+3. Detect and Generate run against the local backend. Demo login `admin` /
+   `voiceguard2026` (change it — see [SECURITY.md](SECURITY.md)).
 
-> **Share with others:** expose your local API with `ngrok http 8000` and paste
-> the resulting `https://…ngrok.io` URL into the gear panel (under *Advanced*).
->
-> **Note:** `/detect` requires a JWT (obtain one from `POST /token`) stored in
-> `localStorage` as `vg_token`. `/synthesize` and `/forensic/report` return 501
-> until the GPU stack is enabled.
+> `/detect` requires a JWT from `POST /token` (stored as `vg_token`). The
+> production detector defaults to `xls_r_aasist`; set `XLS_R_AASIST_PATH` to the
+> ~1.2 GB checkpoint (not in git) or `/detect` returns 503.
 
-Deployment is automated: pushing to `main` runs
-[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml), which builds the
-Vite app and publishes `frontend/dist` to the `gh-pages` branch. Enable it once
-via **Settings → Pages → Source: `gh-pages` branch**.
+**Self-hosted deployment** (Nginx + systemd) is scripted in [`deploy/`](deploy/)
+(`setup.sh`, `update.sh`, `DNS_SETUP.md`). Behind NAT, expose the API with a
+userspace tunnel (e.g. `ngrok http 8000`).
 
 ---
 
@@ -60,16 +55,16 @@ via **Settings → Pages → Source: `gh-pages` branch**.
 │  Vite + Tailwind│  + JWT + TLS  │  (rolling deepfake score│
 ├────────────────┴────────────────┴────────────────────────┤
 │                    Detection Engine                       │
-│   DSFNet (dual-stream: raw waveform + Mel-spectrogram)   │
-│   Bidirectional cross-attention · EER target <0.5%       │
+│   XLS-R-300M + AASIST head (production, eval EER 2.61%)  │
+│   + DSFNet / Wav2Vec2 / WavLM (research models)          │
 │   + Enhanced+XGBoost baseline (F1=0.9500, 475 samples)   │
 ├──────────────────────────────────────────────────────────┤
 │              Explainability & Forensics                   │
-│   Grad-CAM (captum) · SHAP · SHA-256 audit chain         │
-│   NIST SP 800-86 PDF report · C2PA v1.4 watermarking     │
+│   Integrated Gradients (captum) · SHA-256 audit chain    │
+│   NIST SP 800-86 PDF report · spectral watermarking      │
 ├──────────────────────────────────────────────────────────┤
 │                  Infrastructure                           │
-│   Docker Compose · AWS S3 checkpointing · g5.xlarge GPU  │
+│   Nginx + systemd / Docker · local RTX 5090 GPU          │
 │   UAE PDPL compliant (no persistent raw audio, ≤60s TTL) │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -94,15 +89,17 @@ Frontend: http://localhost:3000 · API docs: http://localhost:8000/docs
 
 | Layer | Technology |
 |---|---|
-| Detection model | DSFNet (PyTorch 2.x), Wav2Vec2 (Hugging Face) |
+| Detection model (production) | XLS-R-300M + AASIST head (PyTorch, transformers) |
+| Other detectors | DSFNet, AASIST, Wav2Vec2 / WavLM |
 | Classical baseline | XGBoost + hand-crafted 30-D features (librosa) |
 | Backend | FastAPI 0.104+, Python 3.12, JWT, slowapi |
 | Frontend | React 18, Vite, Tailwind CSS |
-| Synthesis | Coqui XTTS v2 + C2PA v1.4 watermarking |
-| XAI | captum (Grad-CAM), SHAP |
+| Synthesis | Kokoro-82M (local TTS) + spectral watermarking |
+| XAI | captum (Integrated Gradients) |
+| Edge | ONNX INT8 (DSFNetTiny, 0.62 MB) |
 | VoIP | Twilio Media Streams (WebSocket) |
-| Infrastructure | Docker Compose, AWS S3, GitHub Actions |
-| Security | TLS 1.3, OWASP ASVS L2, bandit, semgrep, SBOM |
+| Infrastructure | Nginx + systemd, Docker Compose, GitHub Actions |
+| Security | OWASP ASVS L2, bandit, semgrep |
 
 ---
 
@@ -149,7 +146,7 @@ Validated export (size and CPU latency are weight-independent):
 |---|---|---|
 | Mohammad Thabet Hassan | 20220002188 | DSFNet architecture, FastAPI backend, CI/CD, Docker |
 | Fahad Sadek Al-Jazzeri | 20220001790 | Feature extraction, classical ML baseline, Wav2Vec2, evaluation |
-| Ahmed Sami Alameri | 20220001166 | React frontend, XTTS synthesis, watermarking, Twilio VoIP, forensics, XAI |
+| Ahmed Sami Alameri | 20220001166 | React frontend, speech synthesis, watermarking, Twilio VoIP, forensics, XAI |
 
 **Supervisor:** Dr. Arash Kermani Kolankeh
 **Institution:** Canadian University Dubai, Faculty of Engineering and Applied Sciences
