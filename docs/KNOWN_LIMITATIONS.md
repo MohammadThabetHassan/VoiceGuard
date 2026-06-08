@@ -18,10 +18,24 @@ IndexTTS-2 uses a BigVGAN vocoder and is near-indistinguishable from real speech
 A **frozen-backbone, head-only** fine-tune cannot separate it from genuine voice:
 when pushed harder (the v4 attempt, trained on 90 IndexTTS-2 clones) it nudged a
 fresh clone from 0.06→0.21 fake-prob but **never crossed 0.5**, and it began
-**false-flagging real speech** (clean real-pass dropped to ~78%). So v4 was **not
-deployed** — the deployed model remains **v3** (XTTS/Kokoro caught, good real-pass).
-Cracking IndexTTS-2 requires **unfreezing the XLS-R backbone** (deeper features),
-which is the next experiment.
+**false-flagging real speech** (clean real-pass dropped to ~78%).
+
+A **backbone fine-tune** was then tried (v5: top-6 XLS-R layers unfrozen, more
+reals, low LR) — it was **worse**: a fresh IndexTTS-2 clone scored **0.001**
+(more confidently *real*), and real-pass + overall fake-detection both regressed
+(3 of 4 real clips flagged fake; noisy fake-detect fell to 54%). With only the
+narrow on-disk clone corpus and **no ASVspoof anchor data**, unfreezing the
+backbone overfits/destabilises rather than learning a generalisable IndexTTS-2
+feature.
+
+**Conclusion:** neither head-only nor partial-backbone fine-tuning cracks *fresh*
+IndexTTS-2 with the currently-available data. The deployed model remains **v3**
+(XTTS/Kokoro caught, good real-pass). Properly solving IndexTTS-2 + pushing EER
+needs: (1) the ASVspoof 2021 LA dataset back on disk (to anchor training and
+*measure* EER), and (2) a far larger, more diverse multi-source cloning-fake
+corpus (many TTS systems, voices, texts, channels) — a substantial data effort,
+not another quick fine-tune. IndexTTS-2 may also sit near the detectability limit
+for this frozen front-end.
 
 ## ASVspoof EER measurement is currently blocked
 The ASVspoof 2019 (train) and 2021 LA (eval) tensors are **no longer on disk**
