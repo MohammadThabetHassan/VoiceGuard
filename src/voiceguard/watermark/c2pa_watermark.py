@@ -62,7 +62,7 @@ def detect(
     sr: int = 22050,
     watermark_id: str = "",
     carrier_hz: float = 18000.0,
-    threshold: float = 0.3,
+    threshold: float = 0.02,
 ) -> tuple[bool, float]:
     """Detect whether *audio* contains a watermark for *watermark_id*.
 

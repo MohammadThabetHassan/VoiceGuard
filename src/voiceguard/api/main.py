@@ -37,6 +37,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -123,6 +124,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Synthesised audio is written here and served at /media (i.e. /api/media/<f>
+# once behind Nginx or the demo's /api mount). Auto-deleted after MEDIA_TTL_S.
+MEDIA_DIR = Path(os.environ.get("VG_MEDIA_DIR", "/tmp/voiceguard_media"))  # noqa: S108
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+MEDIA_TTL_S = int(os.environ.get("VG_MEDIA_TTL_S", "900"))
+app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -224,6 +232,23 @@ def _detect_ssl(path: str, model_key: str) -> tuple[str, float]:
     if sr != 16000:
         wav = torchaudio.functional.resample(wav, sr, 16000)
     wav = wav.mean(0, keepdim=True)  # mono (1, T)
+
+    # Input-quality guard: the detector is only meaningful on actual speech.
+    # Reject clips that are too short or near-silent rather than returning a
+    # confident (and usually wrong) "fake" on silence/noise/empty uploads.
+    duration_s = wav.shape[-1] / 16000
+    rms = float(wav.pow(2).mean().sqrt())
+    if duration_s < 0.8:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Audio too short to analyse — please upload at least ~1 second of speech.",
+        )
+    if rms < 1e-3:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Audio is silent or near-silent — no speech detected to analyse.",
+        )
+
     target_len = 48000
     if wav.shape[-1] < target_len:
         wav = torch.nn.functional.pad(wav, (0, target_len - wav.shape[-1]))
@@ -310,6 +335,19 @@ async def detect(
     )
 
 
+def _schedule_media_cleanup(path: Path) -> None:
+    """Delete a generated media file after MEDIA_TTL_S (PDPL minimisation)."""
+    import threading
+
+    def _rm() -> None:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    threading.Timer(MEDIA_TTL_S, _rm).start()
+
+
 @app.post("/synthesize", response_model=SynthesisResult, tags=["synthesis"])
 @limiter.limit("20/minute")
 async def synthesize(
@@ -317,13 +355,37 @@ async def synthesize(
     body: SynthesisRequest,
     _user: str = Depends(get_current_user),
 ):
-    """Synthesise speech from text using XTTS v2 with C2PA watermarking.
+    """Synthesise speech from text using Kokoro-82M with C2PA watermarking.
 
-    Returns a URL to the synthesised audio file.
+    Returns a URL to the synthesised (and watermarked) audio file.
     """
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Speech synthesis requires Coqui XTTS v2 (GPU). Not available on CPU instance.",
+    from starlette.concurrency import run_in_threadpool
+
+    from voiceguard.synthesis.kokoro_synth import synthesize_to_file
+
+    t0 = time.perf_counter()
+    try:
+        fname, watermark_id, _dur = await run_in_threadpool(
+            synthesize_to_file,
+            body.text,
+            str(MEDIA_DIR),
+            body.voice,
+            body.language,
+        )
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Synthesis engine (Kokoro) is not installed on this instance.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Synthesis failed: {exc}") from exc
+
+    _schedule_media_cleanup(MEDIA_DIR / fname)
+    latency_ms = (time.perf_counter() - t0) * 1000
+    return SynthesisResult(
+        audio_url=f"/api/media/{fname}",
+        watermark_id=watermark_id,
+        synthesis_latency_ms=round(latency_ms, 2),
     )
 
 

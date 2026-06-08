@@ -50,8 +50,9 @@ class DetectionResult(BaseModel):
 
 class SynthesisRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000)
-    engine: str = Field(default="xtts_v2", description="Synthesis engine identifier")
+    engine: str = Field(default="kokoro", description="Synthesis engine identifier")
     language: str = Field(default="en")
+    voice: str = Field(default="af_heart", description="Kokoro voice id")
 
 
 class SynthesisResult(BaseModel):
