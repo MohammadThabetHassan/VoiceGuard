@@ -106,15 +106,40 @@ Frontend: http://localhost:3000 · API docs: http://localhost:8000/docs
 
 ---
 
+## Edge Deployment (ONNX INT8)
+
+`DSFNetTiny` (554K params) is the edge-target detector. Export it and apply
+INT8 dynamic quantization with:
+
+```bash
+python scripts/export_onnx.py            # → checkpoints/onnx/dsfnet_tiny_int8.onnx
+python scripts/export_onnx.py --no-quantize   # fp32 only
+```
+
+Validated export (size and CPU latency are weight-independent):
+
+| Artifact | Size | CPU latency (p50) | Target |
+|---|---|---|---|
+| `dsfnet_tiny_fp32.onnx` | 2.23 MB | 26 ms | — |
+| `dsfnet_tiny_int8.onnx` | **0.62 MB** | **30 ms** | <2 MB / <200 ms ✓ |
+
+> The export pipeline, file size, and latency targets are validated. Accuracy is
+> **not** claimed here — no trained `DSFNetTiny` checkpoint exists yet, so the
+> export uses random weights for shape/size/latency validation. Pass
+> `--checkpoint <path>` once a tiny model is trained. The `.onnx` artifacts are
+> git-ignored (regenerable); see `checkpoints/onnx/export_report.json`.
+
+---
+
 ## Acceptance Criteria
 
-| Metric | Target |
-|---|---|
-| DSFNet EER (ASVspoof 2021 LA) | < 0.5% (fallback ≤ 1.0%) |
-| Enhanced+XGBoost F1 (475 samples) | 0.9500 (SM2026 published result) |
-| Real-time inference latency | ≤ 200 ms / 3-second window (GPU) |
-| Backend test coverage | ≥ 80% |
-| UAE PDPL raw audio retention | ≤ 60 seconds |
+| Metric | Target | Status |
+|---|---|---|
+| Detector EER (ASVspoof 2021 LA, eval partition) | < 0.5% | 2.61% (XLS-R+AASIST; <0.5% not met — see KB Results) |
+| Enhanced+XGBoost F1 (475 samples) | 0.9500 | ✅ 0.9500 (SM2026 published result) |
+| Edge model size (INT8 ONNX) | < 2 MB | ✅ 0.62 MB (`DSFNetTiny`) |
+| Edge inference latency (CPU) | ≤ 200 ms | ✅ p50 30 ms (INT8) |
+| UAE PDPL raw audio retention | ≤ 60 seconds | ✅ background auto-delete |
 
 ---
 

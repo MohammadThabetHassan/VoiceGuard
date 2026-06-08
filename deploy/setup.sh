@@ -10,11 +10,12 @@ set -euo pipefail
 DOMAIN="voice-deepfake-vishing-detector-generator.eu.cc"
 EMAIL="abdullahshammari796@gmail.com"   # Let's Encrypt expiry notices; change if you prefer
 REPO_URL="https://github.com/MohammadThabetHassan/VoiceGuard.git"
-REPO_DIR="/home/$USER/voiceguard"
+REPO_DIR="$HOME/voiceguard"
 DIST_DIR="/var/www/voiceguard/dist"
 # Production detector checkpoint (XLS-R + AASIST, ~1.2GB; NOT in the repo).
 # Copy it onto this host and set MODEL_CKPT to its path before running.
-MODEL_CKPT="/home/$USER/voiceguard/models/xls_r_aasist.pt"
+# Override by exporting MODEL_CKPT before invoking this script.
+MODEL_CKPT="${MODEL_CKPT:-$REPO_DIR/models/xls_r_aasist.pt}"
 
 echo "=== VoiceGuard Server Setup (domain: $DOMAIN) ==="
 
@@ -64,7 +65,10 @@ sudo certbot --nginx -d "$DOMAIN" -d "www.$DOMAIN" --non-interactive --agree-tos
 #    Substitute the username + domain, and generate a strong JWT secret.
 SECRET="$(openssl rand -hex 32)"
 sudo cp "$REPO_DIR/deploy/systemd/voiceguard.service" /etc/systemd/system/voiceguard.service
+# Replace the full base path first (handles $HOME != /home/$USER), then the
+# bare username (for User=) and domain.
 sudo sed -i \
+    -e "s|/home/YOUR_USERNAME/voiceguard|$REPO_DIR|g" \
     -e "s/YOUR_USERNAME/$USER/g" \
     -e "s/YOUR_DOMAIN/$DOMAIN/g" \
     -e "s|SECRET_KEY=change-me-openssl-rand-hex-32|SECRET_KEY=$SECRET|" \
