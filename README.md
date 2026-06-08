@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/banner.png" alt="VoiceGuard" width="100%">
+<img src="assets/hero.png" alt="VoiceGuard" width="100%">
 
 # VoiceGuard
 
