@@ -45,11 +45,24 @@ mkdir -p "$VG_SYNTH_HOME/xtts/weights"   # marks the engine verified/available
 
 ## Enabling IndexTTS-2
 
-Same pattern in `$VG_SYNTH_HOME/indextts2/venv` (`pip install indextts` + its
-transformers 4.52 pin), with weights downloaded from `IndexTeam/IndexTTS-2` to
-`$VG_SYNTH_HOME/indextts2/weights` (or set `VG_INDEXTTS2_WEIGHTS`). IndexTTS-2 is
-the better choice for the **Test against detector** demo — the production detector
-flags its clones at ~100%.
+`indextts` is not on PyPI — install from the official repo into its own venv:
+
+```bash
+SYNTH="$VG_SYNTH_HOME/indextts2"
+python3 -m venv "$SYNTH/venv"; VPY="$SYNTH/venv/bin/python"
+curl -fsSL https://bootstrap.pypa.io/get-pip.py | "$VPY" -
+"$VPY" -m pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+git clone --depth 1 https://github.com/index-tts/index-tts.git "$SYNTH/src"
+# The repo pins numba==0.58.1 (no py3.12 wheel) — relax it:
+sed -i 's/numba==0.58.1/numba==0.61.2/' "$SYNTH/src/pyproject.toml"
+"$VPY" -m pip install "$SYNTH/src" "transformers>=4.40,<5"   # transformers 4.52.x
+# Weights (~5.5GB) -> $SYNTH/weights (must contain config.yaml):
+"$VPY" -c "from huggingface_hub import snapshot_download; snapshot_download('IndexTeam/IndexTTS-2', local_dir='$SYNTH/weights')"
+```
+
+IndexTTS-2 is the best choice for the **Test against detector** demo (the hardened
+detector flags its clones confidently). Note: CPU inference is slow (~25s for a
+short clip, RTF ~9); a CUDA torch wheel makes it real-time.
 
 ## Responsible use
 
