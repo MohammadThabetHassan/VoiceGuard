@@ -1,0 +1,19 @@
+<!--
+  Registration snippet for IPED's conf/TaskInstaller.xml.
+
+  Add the <task> line below to the <tasks> list in your IPED TaskInstaller.xml.
+  Place it AFTER parsing/categorization tasks (so item temp files + media types are
+  available) and near IPED's other audio/ML script tasks. Order example:
+
+  <tasks>
+      ...
+      <task script="WhisperProcess.py"></task>          (IPED transcription, if used)
+      <task script="VoiceGuardTask.py"></task>          <!-- add this line -->
+      ...
+  </tasks>
+
+  VoiceGuardTask.py must be copied to <IPED>/scripts/tasks/.
+  The VoiceGuard server must be running (see README.md). The task degrades gracefully
+  (records voiceguard:error and continues) if the server is unreachable.
+-->
+<task script="VoiceGuardTask.py"></task>

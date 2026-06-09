@@ -88,6 +88,9 @@ where = ["src"]
 line-length = 100
 target-version = "py312"
 src = ["src"]
+# Drop-in scripts for external runtimes (e.g. IPED's jep) follow those tools'
+# conventions (camelCase API methods, injected globals), not this repo's style.
+extend-exclude = ["integrations"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A"]

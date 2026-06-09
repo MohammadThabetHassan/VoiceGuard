@@ -1,0 +1,78 @@
+# VoiceGuard ↔ IPED integration
+
+Adds **audio-deepfake detection** to [IPED](https://github.com/sepinf-inc/IPED)
+(Indexador e Processador de Evidências Digitais — the Brazilian Federal Police's
+open-source digital-forensics platform).
+
+## Why this exists (VoiceGuard vs IPED)
+
+This is **additive, not competitive**. IPED's built-in audio ML tasks
+(`WhisperProcess`, `Wav2Vec2Process`) do **speech-to-text transcription**; its other
+classifiers cover faces, age, and NSFW/CSAM imagery. **IPED has no audio-deepfake /
+voice-spoofing detector.** This task fills that gap: during a normal IPED case run it
+flags AI-generated / cloned voices (the VoiceGuard SSL detector — deployed model
+**v9c**, official ASVspoof 2021 LA eval EER **2.84%**, catches Kokoro/XTTS/IndexTTS-2
+and premium engines like ElevenLabs).
+
+So the honest framing is *"VoiceGuard gives IPED a capability it doesn't have,"* not
+*"VoiceGuard is better than IPED."*
+
+## How it works
+
+`VoiceGuardTask.py` is a standard IPED Python task. For each audio item it sends the
+file to a running **VoiceGuard HTTP API** and records the verdict. It uses only the
+Python standard library (`urllib`) — **no torch/CUDA inside IPED's jep threads**, so it
+never competes with IPED (or any other GPU job) for the GPU. The VoiceGuard server
+runs separately (same host is fine, including air-gapped) and holds the model.
+
+```
+IPED case run ──▶ VoiceGuardTask (per item, audio only) ──HTTP──▶ VoiceGuard /detect ──▶ SSL model (v9c)
+                          │
+                          ├─ column  voiceguard:deepfake        = real | fake
+                          ├─ column  voiceguard:fakeProbability = 0.0–1.0  (sortable)
+                          ├─ column  voiceguard:model           = detector id
+                          ├─ category "Deepfake Audio (VoiceGuard)"  (when fake)
+                          └─ bookmark "VoiceGuard - Suspected Deepfake Audio" (in finish())
+```
+
+## Install
+
+1. **Run the VoiceGuard server** (the model backend), reachable from the IPED host:
+   ```bash
+   XLS_R_AASIST_PATH=/path/to/v9c/model_best.pt \
+   PYTHONPATH=src uvicorn voiceguard.api.main:app --host 127.0.0.1 --port 8000
+   ```
+2. **Enable Python tasks in IPED** (once): `pip install jep` and put `jep.so` on
+   `LD_LIBRARY_PATH` — see the [IPED Python-modules guide](https://github.com/sepinf-inc/IPED/wiki/User-Manual#python-modules).
+3. **Drop in the task:** copy `VoiceGuardTask.py` to `<IPED>/scripts/tasks/`.
+4. **Register it** in `<IPED>/conf/TaskInstaller.xml` (see `TaskInstaller-snippet.xml`):
+   add `<task script="VoiceGuardTask.py"></task>` near the other script tasks.
+5. **Configure** (optional — defaults target a local server) via environment variables
+   before launching IPED:
+
+   | env var | default | meaning |
+   |---|---|---|
+   | `VOICEGUARD_API` | `http://127.0.0.1:8000` | VoiceGuard server base URL |
+   | `VOICEGUARD_USER` / `VOICEGUARD_PASSWORD` | `admin` / `voiceguard2026` | API credentials |
+   | `VOICEGUARD_TIMEOUT` | `30` | per-request timeout (s) |
+   | `VOICEGUARD_IPED_ENABLED` | `true` | disable without removing the task |
+
+6. Run IPED normally. Audio items get the columns/category above; open the
+   **VoiceGuard - Suspected Deepfake Audio** bookmark to triage flagged voices.
+
+## Robustness (forensic-safe by design)
+
+- `process()` **never raises** — any failure is recorded as `voiceguard:error` on the
+  item and skipped, so a detector hiccup can't abort the evidence-processing job.
+- Every HTTP call has a **timeout**; a hung server can't stall IPED threads.
+- The JWT is **re-acquired on 401** (long cases outlive the token) and the request retried once.
+- `getMediaType()` is null-guarded (falls back to file extension).
+
+## Status / validation
+
+This add-on is **working-by-construction**: the task follows IPED's documented Python
+task API (`isEnabled`/`init`/`process`/`finish`, `item.getTempFile()`,
+`item.setExtraAttribute()`, `ipedCase`/`searcher` in `finish()`) and the VoiceGuard
+API contract is verified. **It has not been run end-to-end inside an IPED instance**
+(none is available in this environment) — final validation requires loading it into
+IPED against a test case. The VoiceGuard side (`/token`, `/detect`) is live and tested.
