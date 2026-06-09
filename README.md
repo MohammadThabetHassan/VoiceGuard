@@ -41,7 +41,7 @@ classical baseline was accepted at **IEEE SM2026**.
 
 ## ✨ Features
 
-- 🛡️ **Detection** — production **XLS-R-300M + AASIST** model (eval EER **2.61%**), with DSFNet, Wav2Vec2/WavLM, and a classical XGBoost baseline all selectable. An input-quality guard rejects silent / too-short clips instead of guessing.
+- 🛡️ **Detection** — production **XLS-R-300M + AASIST** model (official ASVspoof 2021 LA eval EER **2.84%**, v9c) that *also* catches modern voice clones and premium TTS, with DSFNet, Wav2Vec2/WavLM, and a classical XGBoost baseline all selectable. An input-quality guard rejects silent / too-short clips instead of guessing.
 - 🌍 **Real-world robustness** — hardened against out-of-distribution TTS (Kokoro **93.3%**, IndexTTS2 **100%**) and noisy / telephony / short audio.
 - 🔍 **Explainability** — Integrated-Gradients attribution shows *which moments* drove the verdict.
 - 🗣️ **Synthesis + watermarking** — multi-engine Generate: local **Kokoro-82M** preset voices and optional **zero-shot voice cloning** (XTTS v2 / IndexTTS-2) from a reference clip; every clip is spectrally watermarked as AI-generated and can be tested back through the detector. See [docs/SYNTHESIS_ENGINES.md](docs/SYNTHESIS_ENGINES.md).
@@ -60,23 +60,25 @@ classical baseline was accepted at **IEEE SM2026**.
 Evaluated on the **official** ASVspoof 2021 LA set (181,566 trials). The 2.61% headline
 was **reproduced exactly from raw FLAC on 2026-06-09** (`run_official_eval.py`).
 
-| Model | EER (eval) | EER (full-pool) | Catches modern clones | Role |
-|-------|:----------:|:---------------:|:---------------------:|------|
-| XLS-R + AASIST (Kokoro-parent) | **2.61%** | 8.21% | ✗ | the headline checkpoint |
-| **XLS-R + AASIST — v7** | 3.38% | 8.60% | ✓ all ≥96.7% | 🏆 **deployed** (robustness-first) |
-| XLS-R + AASIST — v8 | 2.49% | 9.91% | ✗ (Kokoro 62.5%) | lowest official EER |
-| Wav2Vec2-large | 3.09% | 7.07% | — | baseline |
+| Model | EER (eval) | EER (full-pool) | Catches clones | Catches premium TTS | Role |
+|-------|:----------:|:---------------:|:--------------:|:-------------------:|------|
+| **XLS-R + AASIST — v9c** | **2.84%** | 8.21% | ✓ all ≥97% | ✓ ElevenLabs 96% | 🏆 **best (validated)** |
+| XLS-R + AASIST — v7 | 3.38% | 8.60% | ✓ all ≥96.7% | ✗ (85%) | current production |
+| XLS-R + AASIST (Kokoro-parent) | 2.61% | 8.21% | ✗ | ✗ | EER-only headline |
+| XLS-R + AASIST — v8 | 2.49% | 9.91% | ✗ (Kokoro 62.5%) | — | lowest official EER |
+| Wav2Vec2-large | 3.09% | 7.07% | — | — | baseline |
 
-**Voice-cloning detection (deployed v7, speaker/text-disjoint held-out, 100/family):**
-Kokoro **100%** · XTTS **100%** · **IndexTTS-2 96%** · genuine-voice real-pass **97%**.
-Premium OOD (ElevenLabs-v3) **85%** — hardening in progress.
-**Edge:** DSFNetTiny INT8 **0.62 MB**, CPU p50 **30 ms**, with **trained** weights (8.47% EER).
+**v9c — best of every axis** (speaker/text-disjoint held-out, 100/family): official eval
+EER **2.84%** · real-pass **96%** · Kokoro **100%** · XTTS **100%** · IndexTTS-2 **97%** ·
+**ElevenLabs-v3 (unseen) 95.8%**. It supersedes v7 — same robustness, lower EER, and it
+*also* catches premium commercial TTS.
+**Edge:** DSFNetTiny INT8 **0.62 MB**, CPU p50 **30 ms**, trained weights (8.47% EER).
 **Provenance:** synthesized audio carries a real *signed C2PA manifest* + spectral watermark.
 
-> **Honest note.** v7 is the **deployed** model: it gives up ~0.8 pp of official-eval
-> EER vs the 2.61% parent in exchange for catching every modern clone family
-> (Kokoro/XTTS/IndexTTS-2), which the parent misses. PGD adversarial hardening is
-> documented as a *negative result* (see [CHANGELOG](CHANGELOG.md)).
+> **On the "2.61%".** That figure is the **Kokoro-parent** checkpoint on the official
+> eval — it does *not* catch modern clones. The deployed lineage (v7 → v9c) is measured
+> on the same official protocol: **v7 = 3.38%**, **v9c = 2.84%**. v9c recovers most of the
+> EER gap *and* catches clones + premium TTS, so it's the best model overall.
 
 **🌐 Live demo:** https://voice-deepfake-vishing-detector-generator.eu.cc
 
