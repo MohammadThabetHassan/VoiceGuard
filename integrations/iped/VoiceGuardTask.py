@@ -56,13 +56,29 @@ class VoiceGuardTask:
         data = urllib.parse.urlencode(
             {"username": self.conf["user"], "password": self.conf["password"]}
         ).encode()
-        req = urllib.request.Request(
-            self.conf["api"] + "/token",
-            data=data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-        with urllib.request.urlopen(req, timeout=self.conf["timeout"]) as r:
-            self.token = json.loads(r.read().decode())["access_token"]
+        # Resolve the API root: works whether the user runs the bare API
+        # (uvicorn voiceguard.api.main:app -> /token) or the combined demo server
+        # (mounts the API under /api -> /api/token). Lock in whichever responds.
+        base = self.conf["api"]
+        candidates = [base] if base.endswith("/api") else [base, base + "/api"]
+        last = None
+        for cand in candidates:
+            req = urllib.request.Request(
+                cand + "/token",
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=self.conf["timeout"]) as r:
+                    self.token = json.loads(r.read().decode())["access_token"]
+                self.conf["api"] = cand  # remember the working base for /detect
+                return
+            except urllib.error.HTTPError as e:
+                last = e
+                if e.code in (404, 405):
+                    continue  # wrong layout -> try /api variant
+                raise
+        raise last
 
     def _multipart(self, file_path):
         boundary = "----VoiceGuardIPEDBoundary7f3a"

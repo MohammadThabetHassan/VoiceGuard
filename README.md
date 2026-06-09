@@ -141,6 +141,14 @@ without it, set `model=classical` or point `XLS_R_AASIST_PATH` at the checkpoint
 Self-hosted deployment (Nginx + systemd) is scripted in [`deploy/`](deploy/);
 Docker Compose is also provided.
 
+### Three ways to run it
+
+| Mode | What | Install |
+|------|------|---------|
+| 🌐 **Web app / API** | Full SSL model **v9c** (catches clones + premium); live demo + REST API | this Quick start, or the [live demo](https://voice-deepfake-vishing-detector-generator.eu.cc) |
+| 🔬 **IPED forensic add-on** | Flags deepfake audio inside the [IPED](https://github.com/sepinf-inc/IPED) evidence pipeline (a capability IPED lacks) | [`integrations/iped/`](integrations/iped/) |
+| 🍓 **Raspberry Pi / edge** | 0.62 MB INT8 model, CPU-only, `onnxruntime`+`numpy`+`soundfile` (no torch) | [`edge/`](edge/) |
+
 ## 🔌 API
 
 | Method | Endpoint | Description | Auth |

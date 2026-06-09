@@ -52,13 +52,30 @@ IPED case run ──▶ VoiceGuardTask (per item, audio only) ──HTTP──�
 
    | env var | default | meaning |
    |---|---|---|
-   | `VOICEGUARD_API` | `http://127.0.0.1:8000` | VoiceGuard server base URL |
+   | `VOICEGUARD_API` | `http://127.0.0.1:8000` | server base URL (auto-detects `/api`*) |
    | `VOICEGUARD_USER` / `VOICEGUARD_PASSWORD` | `admin` / `voiceguard2026` | API credentials |
    | `VOICEGUARD_TIMEOUT` | `30` | per-request timeout (s) |
    | `VOICEGUARD_IPED_ENABLED` | `true` | disable without removing the task |
 
 6. Run IPED normally. Audio items get the columns/category above; open the
    **VoiceGuard - Suspected Deepfake Audio** bookmark to triage flagged voices.
+
+   *\* `VOICEGUARD_API` may point at the bare API (`uvicorn voiceguard.api.main:app`,
+   endpoints at `/token`) **or** the combined demo server (API under `/api`). The task
+   tries the root first and falls back to `/api` automatically — both work.*
+
+## Where the results appear (IPED's GUI)
+
+IPED has a desktop **Analysis GUI** (Java/Swing) that the examiner opens on the
+processed case. This task's outputs surface there with no extra UI work:
+- **Columns** `voiceguard:deepfake` and `voiceguard:fakeProbability` (sortable) in the
+  evidence table — sort by `fakeProbability` to rank the most-likely fakes first.
+- **Category** *Deepfake Audio (VoiceGuard)* in the categories tree (one click to
+  filter to all flagged audio).
+- **Bookmark** *VoiceGuard - Suspected Deepfake Audio* under Bookmarks.
+- Searchable in the query bar, e.g. `voiceguard:deepfake:fake`.
+
+Processing is headless (CLI/`iped.exe`); these results are reviewed in the GUI after.
 
 ## Robustness (forensic-safe by design)
 
