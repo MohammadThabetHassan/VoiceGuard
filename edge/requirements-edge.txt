@@ -1,0 +1,5 @@
+# VoiceGuard edge runtime — minimal deps, all ship aarch64 (Raspberry Pi) wheels.
+# No torch, no transformers, no librosa, no scipy.
+onnxruntime>=1.16
+numpy>=1.24
+soundfile>=0.12
