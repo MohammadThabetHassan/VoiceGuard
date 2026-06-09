@@ -55,14 +55,32 @@ class StreamProcessor:
         return None
 
     def _run_detection(self, audio: np.ndarray) -> tuple[str, float]:
-        """Run classical detector on the window. Returns (label, confidence)."""
+        """Score the window with the SSL production model, falling back to the
+        classical detector then a neutral stub so streaming never hard-fails."""
+        # Preferred: SSL production detector (same model as /detect and /ws/stream).
+        try:
+            import torch
+
+            from voiceguard.models.registry import registry
+
+            model = registry.load("xls_r_aasist")
+            if model is not None:
+                wav = torch.as_tensor(audio, dtype=torch.float32).reshape(1, -1)
+                with torch.no_grad():
+                    probs = torch.softmax(model(wav), dim=-1)[0]
+                fake_p = float(probs[1])
+                if fake_p >= 0.5:
+                    return "fake", fake_p
+                return "real", float(probs[0])
+        except Exception:  # noqa: S110, BLE001 — fall back to classical below
+            pass
+        # Fallback: classical detector (stub if no trained model is present).
         try:
             from voiceguard.features.extractor import extract_features
             from voiceguard.models.classical import ClassicalDetector
 
             features = extract_features(audio, self.target_sr)
             detector = ClassicalDetector()
-            # Without a trained model, fall through to stub
             if detector._clf is None:
                 return "real", 0.5
             return detector.predict_features(features)
