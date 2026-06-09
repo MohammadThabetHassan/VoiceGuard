@@ -55,6 +55,14 @@ classical baseline was accepted at **IEEE SM2026**.
 |:------:|:--------:|:-------:|
 | ![Detect](assets/screenshots/01_detect.png) | ![Generate](assets/screenshots/03_generate.png) | ![Results](assets/screenshots/04_results.png) |
 
+## 🎬 Demo
+
+End-to-end on the live deployment: log in → upload a **premium ElevenLabs clip → flagged 100% FAKE** (588 ms) → generate **watermarked** speech. Try it at **[voice-deepfake-vishing-detector-generator.eu.cc](https://voice-deepfake-vishing-detector-generator.eu.cc)**.
+
+![VoiceGuard demo](assets/demo.gif)
+
+> Full-resolution clip: [`assets/demo.mp4`](assets/demo.mp4). Recorded with Playwright (`deploy/demo_record.py`).
+
 ## 📊 Results
 
 Evaluated on the **official** ASVspoof 2021 LA set (181,566 trials). The 2.61% headline
