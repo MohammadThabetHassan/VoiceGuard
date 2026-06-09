@@ -1,6 +1,33 @@
 # Known Limitations & Detection-vs-Cloning Status
 
-_Last updated 2026-06-08._
+_Last updated 2026-06-09._
+
+## ✅ 2026-06-09 session — limitations closed
+- **Official ASVspoof 2.61% reproduced** from raw FLAC (see the resolved section
+  below); official eval set back on durable disk.
+- **ONNX edge model now carries real trained weights** (DSFNetTiny, 8.47% balanced
+  EER) — INT8 **0.62 MB**, **~30 ms** CPU. Was random-weight before.
+- **True C2PA provenance**: synthesized audio now embeds a real *signed* C2PA
+  manifest (`trainedAlgorithmicMedia`, validation `Valid`) in addition to the
+  spectral watermark — was a spectral-only stub mislabeled "C2PA".
+- **Both live streams use the SSL model**: `/ws/stream` (mic) and `/twilio/stream`
+  (VoIP) were upgraded from the classical detector; a simulated-call test proves
+  the Twilio bridge end-to-end without a phone number.
+- **Durable hosting**: permanent custom-domain HTTPS via Cloudflare Tunnel
+  (`voice-deepfake-vishing-detector-generator.eu.cc`) + a watchdog that keeps the
+  server + tunnels alive across crashes/restarts.
+- **Larger held-out eval** (100/family): v7 holds — real 97%, XTTS 100%, IndexTTS-2 96%.
+- **Premium-TTS (ElevenLabs) hardening in progress**: v7 catches 85% of held-out
+  ElevenLabs-v3; a premium-hardened checkpoint (MLAAD ElevenLabs/Cartesia/DeepGram/
+  Gemini/…) is being trained with a real-pass safety gate. See "Premium voices" below.
+
+## ⚠️ Premium commercial TTS (e.g. ElevenLabs) — partially open
+v7 was trained on Kokoro/XTTS/IndexTTS-2, so commercial premium engines are
+out-of-distribution: it catches ~**85%** of held-out ElevenLabs-v3. Hardening on a
+broad MLAAD premium slice pushes held-out ElevenLabs detection to ~100%, but only
+ships once it holds **real-pass ≥90%** (an over-eager intermediate model was rejected
+for false-flagging real callers). Until a gated checkpoint lands, premium-voice
+detection is **demonstrated but not yet deployed**.
 
 ## ✅ UPDATE: v7 solves cloning detection (deployed)
 
@@ -64,16 +91,23 @@ corpus (many TTS systems, voices, texts, channels) — a substantial data effort
 not another quick fine-tune. IndexTTS-2 may also sit near the detectability limit
 for this frozen front-end.
 
-## ASVspoof EER measurement is currently blocked
-The ASVspoof 2019 (train) and 2021 LA (eval) tensors are **no longer on disk**
-(`voiceguard-checkpoints/tensors/` is empty; raw LA data absent). Consequences:
-- The headline **2.61% eval EER** figure stands as previously measured (see
-  [RESULTS](RESULTS.md)) but **cannot be re-measured or improved** until the
-  ASVspoof 2021 LA dataset is re-acquired (registration-gated ~25 GB + prep).
-- Any new fine-tune can be gated on the **real-world harness** and held-out clone
-  clips (which we have), but **not** on ASVspoof EER — so EER-impact of new models
-  is currently unverifiable. The 2.61% Kokoro-hardened checkpoint is preserved as
-  the EER reference.
+## ✅ RESOLVED (2026-06-09): official ASVspoof 2021 LA EER reproduced
+The official LA eval set was re-downloaded (Zenodo `4837263`, 7.76 GB + the
+asvspoof.org CM keys) to **durable disk** (`asvspoof2021_LA_official/`), and the
+headline **2.61%** was **reproduced exactly** from raw FLAC via
+`run_official_eval.py` (faithful to the original recipe: 3 s clips, `softmax[:,1]`,
+per-phase split on 181,566 trials):
+
+| checkpoint | official **eval** EER | full-pool EER | catches modern clones? |
+|------------|:--------------------:|:-------------:|------------------------|
+| Kokoro-parent (the "2.61%") | **2.61%** | 8.21% | ✗ (misses IndexTTS-2) |
+| **v7 (deployed)** | 3.38% | 8.60% | ✓ all clone families ≥96.7% |
+| v8 (EER-opt) | 2.49% | 9.91% | ✗ (Kokoro regresses to 62.5%) |
+
+Counts match the recording to the trial (eval 133360 fake / 14816 real). The honest
+story: **v7 trades ~0.8 pp of ASVspoof specialisation for catching every modern
+clone family** — the right trade for the vishing threat model. EER of new models is
+now verifiable again on the official protocol.
 
 ## Infrastructure notes
 - Cloning engines (XTTS, IndexTTS-2) now run on **GPU** (`torch cu128`, RTX 5090):

@@ -57,27 +57,28 @@ classical baseline was accepted at **IEEE SM2026**.
 
 ## 📊 Results
 
-Trained on ASVspoof 2019 LA, evaluated on the full ASVspoof 2021 LA set (181,566 trials).
+Evaluated on the **official** ASVspoof 2021 LA set (181,566 trials). The 2.61% headline
+was **reproduced exactly from raw FLAC on 2026-06-09** (`run_official_eval.py`).
 
-| Model | EER (eval) | EER (full-pool) | Role |
-|-------|:----------:|:---------------:|------|
-| **XLS-R + AASIST** (Kokoro-hardened) | **2.61%** | 8.21% | 🏆 headline |
-| Wav2Vec2-large | 3.09% | 7.07% | baseline |
-| WavLM-base-plus | 8.11% | — | baseline |
-| AASIST | 10.90% | — | baseline |
-| DSFNet-V2 | — | 12.67% | own architecture |
+| Model | EER (eval) | EER (full-pool) | Catches modern clones | Role |
+|-------|:----------:|:---------------:|:---------------------:|------|
+| XLS-R + AASIST (Kokoro-parent) | **2.61%** | 8.21% | ✗ | the headline checkpoint |
+| **XLS-R + AASIST — v7** | 3.38% | 8.60% | ✓ all ≥96.7% | 🏆 **deployed** (robustness-first) |
+| XLS-R + AASIST — v8 | 2.49% | 9.91% | ✗ (Kokoro 62.5%) | lowest official EER |
+| Wav2Vec2-large | 3.09% | 7.07% | — | baseline |
 
-**Voice-cloning detection (deployed model "v7", speaker/text-disjoint held-out):**
-Kokoro **100%** · XTTS **100%** · **IndexTTS-2 96.7%** · genuine-voice real-pass
-**96%** · ASVspoof-balanced EER **9.25%**. **Edge:** DSFNetTiny INT8 **0.62 MB**,
-CPU p50 **30 ms**.
+**Voice-cloning detection (deployed v7, speaker/text-disjoint held-out, 100/family):**
+Kokoro **100%** · XTTS **100%** · **IndexTTS-2 96%** · genuine-voice real-pass **97%**.
+Premium OOD (ElevenLabs-v3) **85%** — hardening in progress.
+**Edge:** DSFNetTiny INT8 **0.62 MB**, CPU p50 **30 ms**, with **trained** weights (8.47% EER).
+**Provenance:** synthesized audio carries a real *signed C2PA manifest* + spectral watermark.
 
-> **Honest note.** "v7" is trained/measured on an obtainable *balanced* 2021-LA
-> mirror — its **9.25% EER is a different, harder ruler** than the official 2021-LA
-> eval where the **2.61%** headline was measured (that dataset is currently off-disk),
-> so the two EERs are not directly comparable. PGD
-> adversarial hardening is documented as a *negative result* (see [CHANGELOG](CHANGELOG.md)).
-> The ONNX export validates size/latency with random weights (no trained tiny model yet).
+> **Honest note.** v7 is the **deployed** model: it gives up ~0.8 pp of official-eval
+> EER vs the 2.61% parent in exchange for catching every modern clone family
+> (Kokoro/XTTS/IndexTTS-2), which the parent misses. PGD adversarial hardening is
+> documented as a *negative result* (see [CHANGELOG](CHANGELOG.md)).
+
+**🌐 Live demo:** https://voice-deepfake-vishing-detector-generator.eu.cc
 
 ## 🏗️ Architecture
 
@@ -150,10 +151,13 @@ Docker Compose is also provided.
 
 ## 🗺️ Roadmap
 
-- [ ] Train `DSFNetTiny` so the ONNX edge export carries accuracy
+- [x] Train `DSFNetTiny` so the ONNX edge export carries accuracy
+- [x] Reproduce the official ASVspoof 2021 LA 2.61% EER
+- [x] True signed C2PA provenance on synthesized audio
+- [x] Permanent hosted demo (custom domain via Cloudflare Tunnel)
+- [ ] Premium-TTS (ElevenLabs) hardening with a real-pass safety gate (in progress)
 - [ ] Backbone adversarial fine-tuning for true PGD robustness
 - [ ] GADC (Gulf-Arabic Deepfake Corpus) + human perception study
-- [ ] Permanent hosted demo
 
 ## 🤝 Contributing
 

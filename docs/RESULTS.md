@@ -3,17 +3,32 @@
 > Canonical results live in the [README](../README.md#-results) and
 > [CHANGELOG](../CHANGELOG.md). This file is a concise summary.
 
-## Detection (ASVspoof 2021 LA, full 181,566-trial eval)
+## Detection (official ASVspoof 2021 LA, full 181,566-trial eval)
 
-| Model | EER (eval) | EER (full-pool) | Notes |
-|-------|:----------:|:---------------:|-------|
-| **XLS-R + AASIST** (Kokoro-hardened) | **2.61%** | 8.21% | production headline |
-| Wav2Vec2-large | 3.09% | 7.07% | lowest-EER baseline |
-| WavLM-base-plus | 8.11% | — | baseline |
-| AASIST | 10.90% | — | baseline |
-| DSFNet-V2 | — | 12.67% | own dual-stream architecture |
+_Reproduced 2026-06-09 from the official FLAC via `run_official_eval.py` — the 2.61%
+headline was re-measured exactly (eval 2.612 / progress 2.148 / full-pool 8.213)._
 
-Metrics: F1 ≈ 0.96, ROC-AUC ≈ 0.98, minDCF (p_target=0.01).
+| Model | EER (eval) | EER (full-pool) | Catches modern clones | Notes |
+|-------|:----------:|:---------------:|:---------------------:|-------|
+| XLS-R + AASIST (Kokoro-parent) | **2.61%** | 8.21% | ✗ misses IndexTTS-2 | the headline checkpoint |
+| **XLS-R + AASIST — v7 (DEPLOYED)** | **3.38%** | 8.60% | ✓ all families ≥96.7% | robustness-first production model |
+| XLS-R + AASIST — v8 (EER-opt) | 2.49% | 9.91% | ✗ Kokoro→62.5% | lowest official EER, weaker clones |
+| Wav2Vec2-large | 3.09% | 7.07% | — | baseline |
+| WavLM-base-plus | 8.11% | — | — | baseline |
+| DSFNet-V2 / DSFNetTiny (edge) | — | 12.67% / 8.47%* | — | own dual-stream; *balanced-mirror EER |
+
+Metrics: F1 ≈ 0.96, ROC-AUC ≈ 0.98, minDCF (p_target=0.01). **v7 is deployed**: it
+trades ~0.8 pp of ASVspoof specialisation for catching every modern clone family.
+
+## Held-out clone detection (speaker/text-disjoint, 100/family — 2026-06-09)
+
+| Family | v7 detection |
+|--------|:------------:|
+| real-pass | 97% |
+| Kokoro-82M | 100% |
+| XTTS v2 | 100% |
+| IndexTTS-2 | 96% |
+| ElevenLabs-v3 (OOD premium) | 85% (premium hardening in progress) |
 
 ## SM2026 classical baseline
 

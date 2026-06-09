@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Official ASVspoof 2021 LA EER reproduced (2.61%).** Re-downloaded the official
+  eval (Zenodo + asvspoof.org keys) to durable disk and reproduced the headline
+  **2.61%** eval-phase EER exactly from raw FLAC via `run_official_eval.py`. Scored
+  the whole lineage on the official 181,566 trials — parent 2.61% / **v7 (deployed)
+  3.38%** / v8 2.49% eval EER. EER is verifiable again.
+- **True C2PA provenance signing** (`voiceguard.watermark.c2pa_sign`). Synthesized
+  audio now embeds a real *signed* C2PA manifest tagging it `trainedAlgorithmicMedia`
+  (validation `Valid`), with an auto-generated ES256 credential; `/synthesize`
+  returns `c2pa_signed`. The spectral watermark remains as the re-encode-robust layer.
+- **ONNX edge model with real weights.** Trained `DSFNetTiny` (8.47% balanced EER)
+  so the INT8 export (`0.62 MB`, ~30 ms CPU) carries accuracy instead of random weights.
+- **VoIP `/twilio/stream` on the SSL model** + an end-to-end simulated-call test
+  (`test_twilio_stream_sim`) proving the Media-Stream bridge without a phone number.
+- **Permanent custom-domain hosting via Cloudflare Tunnel** (set up through the CF
+  API) + a `deploy/serve_demo.sh` watchdog supervising server + Cloudflare tunnel +
+  pinned ngrok static domain across crashes/restarts.
+- **Larger held-out clone eval** (100/family): v7 holds — real 97% / XTTS 100% /
+  IndexTTS-2 96%.
+- **Premium-TTS hardening (in progress).** v7 catches 85% of held-out ElevenLabs-v3;
+  a balanced premium-hardened checkpoint (MLAAD: ElevenLabs/Cartesia/DeepGram/Gemini/…)
+  is trained under a real-pass ≥90% safety gate.
+
+### Changed
+- `/ws/stream` (mic) now scores with the SSL production model (was classical),
+  with graceful fallback.
+
+### Fixed
+- Corrected the spectral watermark's misleading "C2PA" docstring (it is the
+  in-signal layer; real C2PA manifests live in `c2pa_sign`).
+
 - **🏆 v7 — unified detector that catches all clone families (deployed).** Trained
   from the 2.61% base on the full ASVspoof-balanced anchor + a large diverse clone
   corpus (520 IndexTTS-2 + 280 XTTS + Kokoro, cloned from ASVspoof-real speakers to
