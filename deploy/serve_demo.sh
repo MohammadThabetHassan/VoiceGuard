@@ -51,5 +51,14 @@ while true; do
     fi
     sleep 5
   fi
+  # Cloudflare Tunnel -> permanent custom domain (voice-deepfake-...eu.cc). Runs
+  # only if the tunnel token exists; keeps the custom-domain HTTPS endpoint up.
+  CF_TOKEN_FILE="$HOME_VG/cf_tunnel_token"
+  if [ -f "$CF_TOKEN_FILE" ] && ! pgrep -f "cloudflared tunnel run" >/dev/null 2>&1; then
+    log "cloudflared down -> starting (custom domain tunnel)"
+    setsid /srv/thabet/bin/cloudflared tunnel run --token "$(cat "$CF_TOKEN_FILE")" \
+      >> "$LOG" 2>&1 &
+    sleep 5
+  fi
   sleep 30
 done
