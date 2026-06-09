@@ -39,9 +39,16 @@ while true; do
       --host 127.0.0.1 --port 8000 --workers 1 --log-level warning >> "$LOG" 2>&1 &
     sleep 20
   fi
-  if ! pgrep -f "ngrok http 8000" >/dev/null 2>&1; then
-    log "tunnel down -> starting ngrok"
-    setsid "$NGROK" http 8000 --log stdout --log-format logfmt >> "$LOG" 2>&1 &
+  if ! pgrep -f "ngrok http" >/dev/null 2>&1; then
+    log "tunnel down -> starting ngrok (pinned static domain -> stable URL)"
+    # Pin the account's free static domain so the public URL never changes across
+    # restarts/reboots. Override with NGROK_DOMAIN; empty falls back to ephemeral.
+    NGROK_DOMAIN="${NGROK_DOMAIN:-cradle-geography-zit.ngrok-free.dev}"
+    if [ -n "$NGROK_DOMAIN" ]; then
+      setsid "$NGROK" http 8000 --domain "$NGROK_DOMAIN" --log stdout --log-format logfmt >> "$LOG" 2>&1 &
+    else
+      setsid "$NGROK" http 8000 --log stdout --log-format logfmt >> "$LOG" 2>&1 &
+    fi
     sleep 5
   fi
   sleep 30
