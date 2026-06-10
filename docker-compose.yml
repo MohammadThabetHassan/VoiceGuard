@@ -8,8 +8,11 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - SECRET_KEY=${SECRET_KEY:-changeme-in-production}
-      - PDPL_MAX_AGE_SECONDS=60
+      # Override SECRET_KEY in .env (see .env.example). The app refuses to start
+      # with the default value unless VG_ENV=development.
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-changeme-in-production}
+      - VG_ENV=${VG_ENV:-development}
+      - PDPL_MAX_AGE_SECONDS=${PDPL_MAX_AGE_SECONDS:-60}
     volumes:
       - /tmp/voiceguard-uploads:/tmp/voiceguard-uploads
     healthcheck:
@@ -27,12 +30,14 @@ services:
     depends_on:
       - backend
 
+  # Single entry point: serves the SPA and proxies /api + /ws to the backend on
+  # one origin. Open http://localhost after `docker compose up --build`.
   nginx:
     image: nginx:alpine
     ports:
       - "80:80"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - backend
       - frontend

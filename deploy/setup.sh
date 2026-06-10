@@ -62,8 +62,11 @@ sudo systemctl reload nginx
 sudo certbot --nginx -d "$DOMAIN" -d "www.$DOMAIN" --non-interactive --agree-tos -m "$EMAIL"
 
 # 8. systemd service for the FastAPI backend
-#    Substitute the username + domain, and generate a strong JWT secret.
+#    Substitute the username + domain, and generate a strong JWT secret plus
+#    random admin/analyst passwords (the demo logins are disabled in production).
 SECRET="$(openssl rand -hex 32)"
+ADMIN_PW="$(openssl rand -hex 16)"
+ANALYST_PW="$(openssl rand -hex 16)"
 sudo cp "$REPO_DIR/deploy/systemd/voiceguard.service" /etc/systemd/system/voiceguard.service
 # Replace the full base path first (handles $HOME != /home/$USER), then the
 # bare username (for User=) and domain.
@@ -72,8 +75,12 @@ sudo sed -i \
     -e "s/YOUR_USERNAME/$USER/g" \
     -e "s/YOUR_DOMAIN/$DOMAIN/g" \
     -e "s|SECRET_KEY=change-me-openssl-rand-hex-32|SECRET_KEY=$SECRET|" \
+    -e "s|VG_ADMIN_PASSWORD=change-me-admin-password|VG_ADMIN_PASSWORD=$ADMIN_PW|" \
+    -e "s|VG_ANALYST_PASSWORD=change-me-analyst-password|VG_ANALYST_PASSWORD=$ANALYST_PW|" \
     -e "s|XLS_R_AASIST_PATH=.*|XLS_R_AASIST_PATH=$MODEL_CKPT\"|" \
     /etc/systemd/system/voiceguard.service
+echo "Generated API logins — admin password: $ADMIN_PW   analyst password: $ANALYST_PW"
+echo "(stored in /etc/systemd/system/voiceguard.service; save them now)"
 if [ ! -f "$MODEL_CKPT" ]; then
     echo "WARNING: model checkpoint not found at $MODEL_CKPT — /detect will 503 until it exists."
 fi

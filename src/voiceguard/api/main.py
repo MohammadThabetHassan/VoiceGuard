@@ -46,6 +46,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from voiceguard.api.auth import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     authenticate_user,
+    check_production_security,
     create_access_token,
     get_current_user,
 )
@@ -77,6 +78,7 @@ from voiceguard.models.registry import registry  # noqa: E402
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    check_production_security()  # refuse to start with a default SECRET_KEY in production
     registry.preload()  # loads any model whose env-var is set at startup
     yield
 

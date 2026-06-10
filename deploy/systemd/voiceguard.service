@@ -23,9 +23,16 @@ User=YOUR_USERNAME
 WorkingDirectory=/home/YOUR_USERNAME/voiceguard
 Environment="PATH=/home/YOUR_USERNAME/voiceguard/venv/bin:/usr/bin:/bin"
 Environment="PYTHONPATH=/home/YOUR_USERNAME/voiceguard/src"
+# Production mode: disables the demo admin/analyst logins and makes the app
+# refuse to start with a default SECRET_KEY.
+Environment="VG_ENV=production"
 # Change SECRET_KEY to a long random value (e.g. `openssl rand -hex 32`) so JWTs
-# survive restarts and are not the insecure dev default.
+# survive restarts and are not the insecure dev default. setup.sh replaces this.
 Environment="SECRET_KEY=change-me-openssl-rand-hex-32"
+# API login passwords. REQUIRED in production — without these no one can log in.
+# Set strong values (the demo passwords are disabled when VG_ENV=production).
+Environment="VG_ADMIN_PASSWORD=change-me-admin-password"
+Environment="VG_ANALYST_PASSWORD=change-me-analyst-password"
 # Used by the backend CORS allow-list (harmless behind same-origin Nginx, but
 # keeps direct-to-API requests working too). Replaced by setup.sh.
 Environment="VOICEGUARD_DOMAIN=YOUR_DOMAIN"
