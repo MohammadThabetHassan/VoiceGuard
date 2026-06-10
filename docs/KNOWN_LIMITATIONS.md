@@ -138,11 +138,13 @@ clones (120 IndexTTS-2 w/ emotion + 80 XTTS + 20 Kokoro) + 700 LibriSpeech reals
 | **IndexTTS-2 detect** | 60% | **63%** |
 | ASVspoof-balanced EER | 29.3% | 29.0% |
 
-**Findings (honest):**
-- **IndexTTS-2 is near the detectability ceiling (~60%)** for this XLS-R front-end:
-  even 120 diverse clones + backbone unfreeze + anchor moved it only 60→63%
-  (within eval noise). Cracking it likely needs a **different/stronger anti-spoof
-  front-end** specialised for near-real (BigVGAN) vocoders, not more data here.
+**Findings (honest) — as of v6; partly SUPERSEDED by v9c:**
+- **IndexTTS-2 ceiling — RESOLVED in v9c.** For v6 (and v3) the front-end seemed
+  capped at ~60% on fresh IndexTTS-2. The v9c recipe broke that: on the
+  speaker/text-disjoint held-out set v9c catches IndexTTS-2 at **97%** with median
+  fake-prob 0.99 (real-pass 96%) — see fresh score distributions in
+  [`CLONE_DETECTION_LIMITS.md`](CLONE_DETECTION_LIMITS.md). The "~60% ceiling" claim
+  below applies to the *superseded* v3/v6 models, not the deployed model.
 - **EER < 2% was NOT achieved and is not currently achievable:** the official
   ASVspoof 2021 LA eval (where 2.61% was measured) is off-disk; on the obtainable
   *balanced* mirror the whole robustness-tuned lineage sits at ~29% EER (a

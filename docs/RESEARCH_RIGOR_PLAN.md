@@ -52,12 +52,12 @@ _Status as of 2026-06-11 — most of the rubric is shipped (commits c37c42c → 
       with a regression test and written justification (Phase 0.3 below).
 - [x] **A documented threat model** + honest PGD curve (`docs/ADVERSARIAL_ROBUSTNESS.md`)
       and hidden-track characterisation (`docs/HIDDEN_TRACK_ANALYSIS.md`).
-- [~] **Hard-limit characterisation** — hidden-track + PGD done; IndexTTS-2 ceiling is
-      described in `KNOWN_LIMITATIONS.md` but **not yet** backed by fresh held-out score
-      distributions (Phase 2.3, remaining).
-- [~] **A reproducibility appendix** — `docs/EVAL_PROTOCOLS.md` has entrypoints, seeds,
-      data provenance, ruler reconciliation. **Remaining:** SHA-256 data manifests + an
-      env lockfile.
+- [x] **Hard-limit characterisation** — hidden-track + PGD done; IndexTTS-2 now backed by
+      fresh held-out score distributions (`docs/CLONE_DETECTION_LIMITS.md`), which show
+      v9c resolves the old ~60% ceiling (97% detect, median 0.99).
+- [x] **A reproducibility appendix** — `docs/EVAL_PROTOCOLS.md` (entrypoints, seeds, data
+      provenance, ruler reconciliation) + `docs/REPRODUCIBILITY_MANIFEST.md`
+      (`scripts/make_manifest.py`: SHA-256 of the checkpoint/keys/scores + env versions).
 
 ---
 
