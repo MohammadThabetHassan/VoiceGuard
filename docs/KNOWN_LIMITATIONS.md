@@ -1,6 +1,11 @@
 # Known Limitations & Detection-vs-Cloning Status
 
-_Last updated 2026-06-09._
+_Last updated 2026-06-10._
+
+> **Current deployed model: v9c** — official ASVspoof 2021 LA eval EER
+> **2.84% [95% CI 2.67–3.02]**, catches all clone families + ElevenLabs ~96%.
+> v9c supersedes the v3/v6/v7 references below (kept as the historical record).
+> Authoritative metrics: [`RESULTS_canonical.md`](RESULTS_canonical.md).
 
 ## ✅ 2026-06-09 session — limitations closed
 - **Official ASVspoof 2.61% reproduced** from raw FLAC (see the resolved section
@@ -101,7 +106,8 @@ per-phase split on 181,566 trials):
 | checkpoint | official **eval** EER | full-pool EER | catches modern clones? |
 |------------|:--------------------:|:-------------:|------------------------|
 | Kokoro-parent (the "2.61%") | **2.61%** | 8.21% | ✗ (misses IndexTTS-2) |
-| **v7 (deployed)** | 3.38% | 8.60% | ✓ all clone families ≥96.7% |
+| **v9c (deployed)** | **2.84%** | 8.21% | ✓ all + ElevenLabs ~96% |
+| v7 (prior production) | 3.38% | 8.60% | ✓ all clone families ≥96.7% |
 | v8 (EER-opt) | 2.49% | 9.91% | ✗ (Kokoro regresses to 62.5%) |
 
 Counts match the recording to the trial (eval 133360 fake / 14816 real). The honest

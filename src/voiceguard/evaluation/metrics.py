@@ -34,29 +34,47 @@ def compute_eer(scores: np.ndarray, labels: np.ndarray) -> float:
 def compute_min_dcf(
     scores: np.ndarray,
     labels: np.ndarray,
-    p_target: float = 0.01,
+    p_target: float = 0.05,
     c_miss: float = 1.0,
     c_fa: float = 1.0,
 ) -> float:
-    """Compute minimum Detection Cost Function (minDCF).
+    """Compute the normalized minimum Detection Cost Function (minDCF).
 
-    DCF(θ) = C_miss·P_miss(θ)·P_target + C_fa·P_fa(θ)·(1 - P_target)
+    Follows the ASVspoof convention where the **target class is bonafide (real)**:
+
+        DCF(θ) = C_miss·P_miss(θ)·P_target + C_fa·P_fa(θ)·(1 - P_target)
+
+    with P_miss = P(bonafide rejected) and P_fa = P(spoof accepted). The
+    spoof-accepted error (a *missed deepfake* — the dangerous one for a vishing
+    detector) therefore carries the (1 - P_target) weight, as it should.
+
+    Scores are fake-class probabilities (higher ⇒ more likely spoof). With
+    ``roc_curve(..., pos_label=1)`` the returned ``fpr`` is P(score≥θ | real) =
+    P_miss and ``fnr = 1 - tpr`` is P(score<θ | fake) = P_fa.
+
+    NOTE: a previous version applied ``p_target`` to the wrong error term, which
+    weighted "false-flag a real caller" 99× over "miss a deepfake" and drove
+    minDCF to ≈1.0 for every robustness-hardened model regardless of EER. Fixed
+    2026-06-10 (see docs/RESEARCH_RIGOR_PLAN.md Phase 0.3).
 
     Args:
         scores: Fake-class probability scores.
         labels: Binary ground-truth labels (1=fake, 0=real).
-        p_target: Prior probability of target class (default 0.01).
-        c_miss: Cost of a miss (default 1.0).
-        c_fa: Cost of a false alarm (default 1.0).
+        p_target: Prior probability of the target (bonafide) class (default 0.05).
+        c_miss: Cost of rejecting a bonafide trial (default 1.0).
+        c_fa: Cost of accepting a spoof trial (default 1.0).
 
     Returns:
-        minDCF as a float.
+        Normalized minDCF as a float (0 = perfect, 1 = no better than the trivial
+        accept-all / reject-all baseline).
     """
     from sklearn.metrics import roc_curve
 
     fpr, tpr, _ = roc_curve(labels, scores, pos_label=1)
     fnr = 1.0 - tpr
-    dcf = c_miss * fnr * p_target + c_fa * fpr * (1.0 - p_target)
+    p_miss = fpr  # bonafide rejected (false alarm on a real caller)
+    p_fa = fnr  # spoof accepted (a missed deepfake)
+    dcf = c_miss * p_miss * p_target + c_fa * p_fa * (1.0 - p_target)
     norm = min(c_miss * p_target, c_fa * (1.0 - p_target))
     return float(np.min(dcf) / (norm + 1e-12))
 

@@ -73,7 +73,26 @@ def test_min_dcf_range():
     scores = rng.uniform(0, 1, 200)
     labels = rng.integers(0, 2, 200)
     dcf = compute_min_dcf(scores, labels)
-    assert 0.0 <= dcf <= 10.0
+    assert 0.0 <= dcf <= 1.0
+
+
+def test_min_dcf_convention():
+    """A good detector (catches every spoof, modest real false-flags) must get a
+    LOW minDCF. Guards against the inverted cost model that drove minDCF→1.0 for
+    every robustness-hardened model regardless of EER (see RESEARCH_RIGOR_PLAN 0.3).
+    """
+    rng = np.random.default_rng(0)
+    # real (label 0) -> low spoof-score; fake (label 1) -> high; class-imbalanced.
+    real = np.concatenate([rng.normal(0.05, 0.05, 17000), rng.normal(0.8, 0.1, 1452)])
+    fake = rng.normal(0.95, 0.05, 163114)
+    scores = np.clip(np.concatenate([real, fake]), 0, 1)
+    labels = np.concatenate([np.zeros(len(real)), np.ones(len(fake))])
+    good = compute_min_dcf(scores, labels)
+    assert good < 0.3, f"good detector should have low minDCF, got {good}"
+
+    # A random detector must still be ~1 (no better than the trivial baseline).
+    rand = compute_min_dcf(rng.uniform(0, 1, 5000), rng.integers(0, 2, 5000))
+    assert rand > 0.8, f"random detector should have minDCF≈1, got {rand}"
 
 
 def test_compute_roc_shapes():
