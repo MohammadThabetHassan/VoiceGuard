@@ -53,7 +53,7 @@ dependencies = [
   "onnx>=1.15.0",
   "onnxruntime>=1.17.0",
   # Data
-  "numpy>=1.26.0",
+  "numpy>=2.4.6",
   "pandas>=2.1.0",
   "scipy>=1.11.0",
   "matplotlib>=3.8.0",
