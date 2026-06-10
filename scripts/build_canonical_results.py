@@ -156,8 +156,9 @@ def main() -> None:
     if baselines:
         print("\n## Same-protocol baselines\n")
         print(
-            "Published anti-spoofing architectures scored on the **identical** eval, "
-            "so VoiceGuard's numbers are anchored, not free-floating.\n"
+            "**In-house reproductions** of standard SSL anti-spoofing architectures "
+            "(our own trainings, *not* the literature's published numbers), scored on "
+            "the **identical** eval so VoiceGuard's numbers are anchored to a common ruler.\n"
         )
         _render_table(baselines)
 

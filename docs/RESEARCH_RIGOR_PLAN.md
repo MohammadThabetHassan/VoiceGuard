@@ -43,18 +43,21 @@ _Status as of 2026-06-11 — most of the rubric is shipped (commits c37c42c → 
       via `scripts/build_canonical_results.py`; all docs reference it.
 - [x] **Every headline number has a 95% CI** (bootstrap) on a **named protocol** —
       `scripts/bootstrap_ci.py`; v9c = 2.84% [2.67–3.02]. Rulers kept separate.
-- [x] **≥3 published baselines** on our exact eval — 4 (Wav2Vec2-large, WavLM-base+,
-      WavLM-large, XLS-R+AASIST aug) in the canonical table's baseline panel.
+- [x] **≥3 same-protocol baselines** on our exact eval — 4 in-house reproductions of
+      standard architectures (Wav2Vec2-large, WavLM-base+, WavLM-large, XLS-R+AASIST aug)
+      in the baseline panel (our trainings, not literature numbers).
 - [x] **An ablation table** — the production-lineage table isolates each lever
       (parent→v7→v9c→v8 = clone-hardening / robustness / EER-opt), baselines anchor it.
 - [x] **minDCF fixed** — corrected the inverted cost model (`metrics.py`), 0.998→0.229,
       with a regression test and written justification (Phase 0.3 below).
 - [x] **A documented threat model** + honest PGD curve (`docs/ADVERSARIAL_ROBUSTNESS.md`)
       and hidden-track characterisation (`docs/HIDDEN_TRACK_ANALYSIS.md`).
-      IndexTTS-2 ceiling is documented in `KNOWN_LIMITATIONS.md` (Phase 2.3 — remaining:
-      add held-out score distributions).
-- [x] **A reproducibility appendix** — `docs/EVAL_PROTOCOLS.md` (entrypoints, seeds, data
-      provenance, ruler reconciliation). Remaining: SHA-256 manifests + env lockfile.
+- [~] **Hard-limit characterisation** — hidden-track + PGD done; IndexTTS-2 ceiling is
+      described in `KNOWN_LIMITATIONS.md` but **not yet** backed by fresh held-out score
+      distributions (Phase 2.3, remaining).
+- [~] **A reproducibility appendix** — `docs/EVAL_PROTOCOLS.md` has entrypoints, seeds,
+      data provenance, ruler reconciliation. **Remaining:** SHA-256 data manifests + an
+      env lockfile.
 
 ---
 

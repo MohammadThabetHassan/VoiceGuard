@@ -17,7 +17,7 @@ All EERs are on the **official ASVspoof 2021 LA** protocol (181,566 trials; `run
 
 ## Same-protocol baselines
 
-Published anti-spoofing architectures scored on the **identical** eval, so VoiceGuard's numbers are anchored, not free-floating.
+**In-house reproductions** of standard SSL anti-spoofing architectures (our own trainings, *not* the literature's published numbers), scored on the **identical** eval so VoiceGuard's numbers are anchored to a common ruler.
 
 | Model | Role | eval EER [95% CI] | progress EER | hidden EER | full-pool EER | minDCF |
 |-------|------|:-----------------:|:------------:|:----------:|:-------------:|:------:|
