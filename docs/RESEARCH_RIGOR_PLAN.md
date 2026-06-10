@@ -37,18 +37,24 @@ Verified on 2026-06-10 against `voiceguard-checkpoints/runs/official_*.json` and
 
 ## What "9+/10" looks like (the rubric we are grading against)
 
-- [ ] **One canonical results table**, provenance-tagged (checkpoint → script → data →
-      seed → metric), reproducible by a single command; all docs reference it.
-- [ ] **Every headline number has a 95% CI** (bootstrap) and is reported on a **named
-      protocol**; cross-ruler numbers are never mixed in one column.
-- [ ] **≥3 published baselines** reproduced on our exact eval, in the same table.
-- [ ] **An ablation table** isolating each lever (RawBoost, AASIST backend, Kokoro/clone
-      hardening, layers-unfrozen) — built from checkpoints we already have.
-- [ ] **minDCF fixed or formally retired** with a written justification.
-- [ ] **A documented threat model** + honest PGD robustness curve; hard limits
-      (hidden-track, IndexTTS-2) characterised, not hidden.
-- [ ] **A reproducibility appendix**: seeds, data manifests (SHA-256), env lockfile,
-      one `make eval` entrypoint.
+_Status as of 2026-06-11 — most of the rubric is shipped (commits c37c42c → 4de6096)._
+
+- [x] **One canonical results table**, provenance-tagged — `docs/RESULTS_canonical.md`
+      via `scripts/build_canonical_results.py`; all docs reference it.
+- [x] **Every headline number has a 95% CI** (bootstrap) on a **named protocol** —
+      `scripts/bootstrap_ci.py`; v9c = 2.84% [2.67–3.02]. Rulers kept separate.
+- [x] **≥3 published baselines** on our exact eval — 4 (Wav2Vec2-large, WavLM-base+,
+      WavLM-large, XLS-R+AASIST aug) in the canonical table's baseline panel.
+- [x] **An ablation table** — the production-lineage table isolates each lever
+      (parent→v7→v9c→v8 = clone-hardening / robustness / EER-opt), baselines anchor it.
+- [x] **minDCF fixed** — corrected the inverted cost model (`metrics.py`), 0.998→0.229,
+      with a regression test and written justification (Phase 0.3 below).
+- [x] **A documented threat model** + honest PGD curve (`docs/ADVERSARIAL_ROBUSTNESS.md`)
+      and hidden-track characterisation (`docs/HIDDEN_TRACK_ANALYSIS.md`).
+      IndexTTS-2 ceiling is documented in `KNOWN_LIMITATIONS.md` (Phase 2.3 — remaining:
+      add held-out score distributions).
+- [x] **A reproducibility appendix** — `docs/EVAL_PROTOCOLS.md` (entrypoints, seeds, data
+      provenance, ruler reconciliation). Remaining: SHA-256 manifests + env lockfile.
 
 ---
 
