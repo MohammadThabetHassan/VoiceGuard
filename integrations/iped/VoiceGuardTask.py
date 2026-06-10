@@ -33,7 +33,19 @@ class VoiceGuardTask:
             "user": os.environ.get("VOICEGUARD_USER", "admin"),
             "password": os.environ.get("VOICEGUARD_PASSWORD", "voiceguard2026"),
             "timeout": float(os.environ.get("VOICEGUARD_TIMEOUT", "30")),
+            "logfile": os.environ.get("VOICEGUARD_IPED_LOG", ""),
         }
+
+    def _log(self, msg):
+        # Optional audit log (jep can swallow Python print); set VOICEGUARD_IPED_LOG.
+        lf = getattr(self, "conf", {}).get("logfile", "")
+        if not lf:
+            return
+        try:
+            with open(lf, "a") as f:
+                f.write(msg + "\n")
+        except Exception:
+            pass
 
     def isEnabled(self):
         return self._cfg()["enabled"]
@@ -147,13 +159,18 @@ class VoiceGuardTask:
             if label == "fake":
                 item.addCategory("Deepfake Audio (VoiceGuard)")
                 self.flagged += 1
+            self._log("%s -> %s (fakeProb=%.4f)" % (item.getName(), label, fake_prob))
         except Exception as e:  # never propagate into the IPED pipeline
             try:
                 item.setExtraAttribute("voiceguard:error", str(e)[:200])
             except Exception:
                 pass
+            self._log("%s -> ERROR %s" % (item.getName(), str(e)[:160]))
 
     # ---- after the case: bookmark every suspected deepfake -----------------------
+    # NB: IPED runs finish() once per worker (separate jep interpreters/processes),
+    # so this is called several times; IPED keys the bookmark by name, so the items
+    # land in a single "VoiceGuard - Suspected Deepfake Audio" bookmark regardless.
     def finish(self):
         try:
             searcher.setQuery("voiceguard\\:deepfake:fake")
@@ -165,6 +182,8 @@ class VoiceGuardTask:
                 )
                 ipedCase.getBookmarks().addBookmark(ids, bid)
                 ipedCase.getBookmarks().saveState(True)
-                print("[VoiceGuard] bookmarked %d suspected-deepfake audio item(s)" % len(ids))
+                self._log("bookmarked %d suspected-deepfake item(s)" % len(ids))
+            else:
+                self._log("finish: no items matched voiceguard:deepfake:fake")
         except Exception as e:
-            print("[VoiceGuard] finish: bookmark step skipped (%s)" % str(e)[:160])
+            self._log("finish: bookmark step skipped (%s)" % str(e)[:160])

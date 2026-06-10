@@ -85,11 +85,21 @@ Processing is headless (CLI/`iped.exe`); these results are reviewed in the GUI a
 - The JWT is **re-acquired on 401** (long cases outlive the token) and the request retried once.
 - `getMediaType()` is null-guarded (falls back to file extension).
 
-## Status / validation
+## Status — ✅ verified end-to-end in IPED 4.3.1
 
-This add-on is **working-by-construction**: the task follows IPED's documented Python
-task API (`isEnabled`/`init`/`process`/`finish`, `item.getTempFile()`,
-`item.setExtraAttribute()`, `ipedCase`/`searcher` in `finish()`) and the VoiceGuard
-API contract is verified. **It has not been run end-to-end inside an IPED instance**
-(none is available in this environment) — final validation requires loading it into
-IPED against a test case. The VoiceGuard side (`/token`, `/detect`) is live and tested.
+Run inside a real **IPED 4.3.1** install (Linux, JDK 17, jep 4.0.3 embedded Python)
+against a test case of 4 audio files + 1 text note. IPED loaded `VoiceGuardTask.py`
+via jep, processed each item, and produced — straight from the pipeline:
+
+| evidence file | source engine | VoiceGuard verdict |
+|---|---|---|
+| `ransom_elevenlabs.wav` | ElevenLabs (premium) | **fake** (0.995) |
+| `suspect_call_xtts.wav` | XTTS | **fake** (0.993) |
+| `voicemail_indextts2.wav` | IndexTTS-2 | **fake** (0.991) |
+| `genuine_witness.wav` | real human | real (0.023) |
+| `notes.txt` | (non-audio) | skipped |
+
+All audio classified correctly, the text note skipped, and the **3 fakes auto-bookmarked**
+under *"VoiceGuard - Suspected Deepfake Audio"*. The full server model **v9c** (via the
+API) was used, so even premium ElevenLabs was caught. Set `VOICEGUARD_IPED_LOG` to write
+this per-item audit trail to a file.
