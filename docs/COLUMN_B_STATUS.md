@@ -46,6 +46,22 @@ if ALL hold; otherwise v9c stays and we stop (no v2/v3 spiral):**
 would therefore be *partly a data artifact* (− LibriSpeech), not purely the effect of
 adversarial training. This is a confounded delta, stated as such.
 
-### Result
+### Result — IMPLEMENTED & PRE-REGISTERED; execution GPU-blocked (2026-06-11)
 
-_(appended after the run — see the closing section of this file.)_
+The runner (`voiceguard-checkpoints/column_b2_adv.py`) is complete: it loads v9c,
+unfreezes the top-6 of 24 XLS-R encoder layers + the AASIST head, builds an
+ASVspoof-bonafide real pool + clone fakes, and does clean+PGD adversarial training
+with the gate measured afterwards by `scripts/pgd_curve.py`,
+`scripts/clone_score_distributions.py`, and `scripts/eval_official.sh`.
+
+A smoke test validated the full code path **up to the backward pass** (data decode,
+model load, forward, FGSM/PGD forward all run). It then hit **CUDA OOM with only
+~80 MiB free** — the GPU is held at **30.6 / 31 GB by another user's process**
+(`ollama/llama-server`). Backbone adversarial training needs several GB of gradient
+memory, so the run **cannot proceed under this contention**.
+
+**Honest status:** this is an *execution* block (shared-GPU contention), not a code or
+design block. The experiment is pre-registered and ready; it runs as soon as the GPU
+frees. The expected outcome (per the head-only precedent + the disclosed gone-LibriSpeech
+confound) is a robustness/accuracy trade that likely **fails the deploy gate** — in which
+case v9c stays and that is the reported finding. No result is fabricated in the meantime.
