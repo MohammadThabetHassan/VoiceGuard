@@ -87,6 +87,12 @@ Processing is headless (CLI/`iped.exe`); these results are reviewed in the GUI a
 
 ## Status — ✅ verified end-to-end in IPED 4.3.1
 
+![VoiceGuard results in an IPED 4.3.1 case](iped_results.png)
+
+*Real results from the processed IPED case (the `FileList.csv` export + the task audit
+log). The 3 AI-generated clips are categorized "Deepfake Audio (VoiceGuard)" and
+bookmarked; the genuine recording passes; the text note is skipped.*
+
 Run inside a real **IPED 4.3.1** install (Linux, JDK 17, jep 4.0.3 embedded Python)
 against a test case of 4 audio files + 1 text note. IPED loaded `VoiceGuardTask.py`
 via jep, processed each item, and produced — straight from the pipeline:
