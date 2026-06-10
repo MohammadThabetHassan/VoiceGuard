@@ -65,8 +65,10 @@ End-to-end on the live deployment: log in → upload a **premium ElevenLabs clip
 
 ## 📊 Results
 
-Evaluated on the **official** ASVspoof 2021 LA set (181,566 trials). The 2.61% headline
-was **reproduced exactly from raw FLAC on 2026-06-09** (`run_official_eval.py`).
+Evaluated on the **official** ASVspoof 2021 LA set (181,566 trials). The deployed model
+is **v9c at 2.84% EER** — it catches modern clones and premium TTS as well as scoring low
+on the official protocol. The earlier **2.61%** Kokoro-parent (clone-blind, EER-only) was
+**reproduced exactly from raw FLAC on 2026-06-09** (`run_official_eval.py`).
 
 | Model | EER (eval) | EER (full-pool) | Catches clones | Catches premium TTS | Role |
 |-------|:----------:|:---------------:|:--------------:|:-------------------:|------|
