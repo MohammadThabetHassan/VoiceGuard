@@ -90,6 +90,15 @@ EER **2.84%** · real-pass **96%** · Kokoro **100%** · XTTS **100%** · IndexT
 > on the same official protocol: **v7 = 3.38%**, **v9c = 2.84%**. v9c recovers most of the
 > EER gap *and* catches clones + premium TTS, so it's the best model overall.
 
+> **🔬 Reproducible & honestly bounded.** Every EER carries a 95% bootstrap CI, on a
+> single provenance-tagged table, with same-protocol baselines and a fixed env manifest —
+> and the hard limits are *measured*, not hidden:
+> [canonical results](docs/RESULTS_canonical.md) ·
+> [adversarial/PGD curve](docs/ADVERSARIAL_ROBUSTNESS.md) ·
+> [hidden-track analysis](docs/HIDDEN_TRACK_ANALYSIS.md) ·
+> [clone-detection limits](docs/CLONE_DETECTION_LIMITS.md) ·
+> [eval protocols & reproducibility](docs/EVAL_PROTOCOLS.md).
+
 **🌐 Live demo:** https://voice-deepfake-vishing-detector-generator.eu.cc
 
 ## 🏗️ Architecture
