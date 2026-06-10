@@ -136,7 +136,7 @@ def main() -> None:
             "of EER). Rows marked `—` are pending a re-run via `scripts/eval_official.sh`.\n"
         )
 
-    print("## Provenance\n")
+    print("\n## Provenance\n")
     print("| Model | Checkpoint | Source JSON |")
     print("|-------|------------|-------------|")
     for r in rows:

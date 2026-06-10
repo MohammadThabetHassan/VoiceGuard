@@ -22,6 +22,10 @@ CKPT="$RUNS_DIR/$RUN/model_best.pt"
 CONFIG="$RUNS_DIR/$RUN/config.json"
 OUT="$RUNS_DIR/official_${RUN}.json"
 SCORES="$RUNS_DIR/scores_${RUN}_official.npz"
+KEYS="${VG_CM_KEYS:-$CKPT_ROOT/asvspoof2021_LA_official/keys/LA/CM/trial_metadata.txt}"
+# Vendored eval harness (repo copy); falls back to the checkpoints-dir copy.
+EVAL_PY="$REPO/scripts/run_official_eval.py"
+[ -f "$EVAL_PY" ] || EVAL_PY="$CKPT_ROOT/run_official_eval.py"
 
 [ -f "$CKPT" ]   || { echo "missing checkpoint: $CKPT" >&2; exit 1; }
 [ -d "$FLAC_DIR" ] || { echo "missing flac dir: $FLAC_DIR" >&2; exit 1; }
@@ -36,8 +40,8 @@ export LD_LIBRARY_PATH="/tmp/nvml_fix:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="$REPO/src"
 
 echo ">> Evaluating $RUN on the official ASVspoof 2021 LA protocol"
-python3 "$CKPT_ROOT/run_official_eval.py" \
-    --checkpoint "$CKPT" --config "$CONFIG" \
+python3 "$EVAL_PY" \
+    --checkpoint "$CKPT" --config "$CONFIG" --keys "$KEYS" \
     --flac-dir "$FLAC_DIR" --out "$OUT" --save-scores "$SCORES"
 
 echo ">> Bootstrap 95% CIs + corrected minDCF"
