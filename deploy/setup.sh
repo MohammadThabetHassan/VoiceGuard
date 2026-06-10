@@ -8,7 +8,7 @@
 set -euo pipefail
 
 DOMAIN="voice-deepfake-vishing-detector-generator.eu.cc"
-EMAIL="abdullahshammari796@gmail.com"   # Let's Encrypt expiry notices; change if you prefer
+EMAIL="mohammad_thabet@hotmail.com"   # Let's Encrypt expiry notices; change if you prefer
 REPO_URL="https://github.com/MohammadThabetHassan/VoiceGuard.git"
 REPO_DIR="$HOME/voiceguard"
 DIST_DIR="/var/www/voiceguard/dist"

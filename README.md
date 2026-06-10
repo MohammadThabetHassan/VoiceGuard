@@ -192,7 +192,13 @@ Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and our
 | **Fahad Sadek Al-Jazzeri** | Feature extraction, classical ML, SSL models, evaluation |
 | **Ahmed Sami Alameri** | React frontend, synthesis, watermarking, VoIP, forensics, XAI |
 
-**Supervisor:** Dr. Arash Kermani Kolankeh · **Institution:** Canadian University Dubai · **2025–2026**
+**Supervisor:** [Dr. Arash Kermani Kolankeh](https://github.com/arashkermaniprojects) · **Institution:** Canadian University Dubai · **2025–2026**
+
+## 🙏 Acknowledgements
+
+A heartfelt **thank you to our supervisor, [Dr. Arash Kermani Kolankeh](https://github.com/arashkermaniprojects)**,
+whose guidance, insight, and encouragement shaped VoiceGuard at every stage. This project
+would not have been possible without his mentorship — thank you, Dr. Arash.
 
 ## 📚 Citation
 
