@@ -35,6 +35,31 @@ official eval but **9.25%** on the balanced mirror; the early robustness lineage
 - v9c's balanced-mirror EER was **not** separately measured because it is not a
   reported metric; the official protocol is the sole headline ruler.
 
+## Train/eval separation (contamination assessment)
+
+The deployed model is **trained on the balanced mirror** (`asvspoof_la_balanced`
+train split, 34,931 clips) and **evaluated on the official 2021 LA FLAC** (181,566).
+A reader should ask: could training have seen the eval recordings? Reproducing the
+EER to four decimals does **not** detect that — train/eval overlap is invisible at
+eval time — so it is assessed explicitly here.
+
+- **Structural argument (strong):** ASVspoof 2021 LA is **eval-only**; the task has no
+  training split and reuses the 2019 LA *train* partition. A "2021 LA" training set
+  therefore draws from 2019 LA train (utterance namespace `LA_T_*`), which is disjoint
+  by construction from the 2021 eval recordings (`LA_E_*`). The split sizes fit this:
+  train ≈ 35k (2019-train scale), test ≈ 201k (2021-eval scale).
+- **What is *not* verified:** the mirror parquet carries only `audio` + `label` — **no
+  utterance IDs** — so a direct ID intersection of train vs the official eval is not
+  possible from the artifact on disk, and the "normalized" audio defeats byte-level
+  matching. Disjointness is therefore **asserted from protocol design, not proven by ID**.
+- **Residual risk & how to close it:** to fully verify, cross-check the
+  `MoaazTalab/ASVspoof_2021_LA_Balanced_Normalized` dataset card / source for the split
+  provenance, or obtain an ID-bearing version and intersect against the official
+  `trial_metadata.txt`. Until then this is a **disclosed assumption**, not a guarantee.
+
+  This caveat applies to the *clean-EER* claim only; held-out clone metrics and the PGD
+  curve use separate, independently-built sets.
+
 ## Reproducing every number
 
 Everything below regenerates from artifacts already on disk; no number is hand-typed.
