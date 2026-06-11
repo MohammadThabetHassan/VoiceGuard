@@ -50,7 +50,9 @@ from voiceguard.api.auth import (
     authenticate_user,
     check_production_security,
     create_access_token,
+    get_current_claims,
     get_current_user,
+    role_for,
 )
 from voiceguard.api.middleware import (
     PDPLTimingMiddleware,
@@ -69,6 +71,7 @@ from voiceguard.api.schemas import (
     SynthesisEngineInfo,
     SynthesisResult,
     TokenResponse,
+    WatermarkVerifyResult,
 )
 from voiceguard.forensics import result_store
 
@@ -160,6 +163,28 @@ ACCEPTED_CONTENT_TYPES = {"audio/wav", "audio/wave", "audio/x-wav", "audio/mpeg"
 ACCEPTED_SUFFIXES = {".wav", ".mp3", ".flac"}
 MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100MB
 _UPLOAD_CHUNK = 1024 * 1024  # 1MB
+# Longest clip /detect will analyse. libsndfile decode + up to 60 SSL windows run
+# synchronously in the request, so an unbounded clip on CPU times out the 120s
+# nginx proxy window — reject early with a clear message instead of a 504.
+MAX_AUDIO_SECONDS = float(os.environ.get("VG_MAX_AUDIO_SECONDS", "600"))
+
+
+def _sniff_is_audio(head: bytes) -> bool:
+    """True when *head* starts like one of the advertised formats (WAV/FLAC/MP3).
+
+    Extension and Content-Type are attacker-controlled; the bytes are what
+    libsndfile will actually parse, so gate on them. MP3 is ID3-tagged or starts
+    straight at an MPEG frame sync (0xFFEx).
+    """
+    if len(head) < 12:
+        return False
+    if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+        return True
+    if head[:4] == b"fLaC":
+        return True
+    if head[:3] == b"ID3":
+        return True
+    return head[0] == 0xFF and (head[1] & 0xE0) == 0xE0  # MPEG frame sync
 
 
 async def save_upload(upload: UploadFile) -> tuple[str, str]:
@@ -182,17 +207,32 @@ async def save_upload(upload: UploadFile) -> tuple[str, str]:
     fd, path = make_temp_audio_file(suffix=suffix)
     sha256 = hashlib.sha256()
     total = 0
+    sniffed = False
     try:
         with _os.fdopen(fd, "wb") as out:
             while chunk := await upload.read(_UPLOAD_CHUNK):
+                if not sniffed:
+                    # Magic bytes, not just extension/Content-Type: the bytes are
+                    # what libsndfile (CVE history) will actually parse.
+                    if not _sniff_is_audio(chunk[:12]):
+                        raise HTTPException(
+                            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                            detail="File content is not WAV, MP3, or FLAC audio.",
+                        )
+                    sniffed = True
                 total += len(chunk)
                 if total > MAX_FILE_SIZE_BYTES:
                     raise HTTPException(
-                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                         detail=f"File exceeds {MAX_FILE_SIZE_BYTES // (1024 * 1024)}MB limit",
                     )
                 sha256.update(chunk)
                 out.write(chunk)
+        if not sniffed:  # empty body never entered the loop
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail="Empty upload — send WAV, MP3, or FLAC audio.",
+            )
     except HTTPException:
         Path(path).unlink(missing_ok=True)  # drop the partial file
         raise
@@ -202,6 +242,35 @@ async def save_upload(upload: UploadFile) -> tuple[str, str]:
 
     PDPLTimingMiddleware.register(path)
     return path, sha256.hexdigest()
+
+
+def _probe_audio(path: str) -> dict:
+    """Header-only probe via soundfile: duration/sample-rate/format without a full
+    decode. Rejects clips over MAX_AUDIO_SECONDS (413) before any model work —
+    synchronous CPU inference on an unbounded clip would 504 behind nginx."""
+    import soundfile as sf
+
+    try:
+        info = sf.info(path)
+    except (RuntimeError, sf.LibsndfileError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Could not decode audio — upload valid WAV, MP3, or FLAC.",
+        ) from exc
+    if info.duration > MAX_AUDIO_SECONDS:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=(
+                f"Audio is {info.duration:.0f}s long; the analysis limit is "
+                f"{MAX_AUDIO_SECONDS:.0f}s. Trim the clip or raise VG_MAX_AUDIO_SECONDS."
+            ),
+        )
+    return {
+        "duration_s": round(info.duration, 2),
+        "sample_rate": info.samplerate,
+        "channels": info.channels,
+        "format": f"{info.format}/{info.subtype}",
+    }
 
 
 def _read_audio(path: str) -> tuple[np.ndarray, int]:
@@ -407,7 +476,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
             headers={"WWW-Authenticate": "Bearer"},
         )
     token = create_access_token(
-        {"sub": form_data.username},
+        {"sub": form_data.username, "role": role_for(form_data.username)},
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
     )
     return TokenResponse(access_token=token)
@@ -436,6 +505,8 @@ async def detect(
     path, audio_hash = await save_upload(file)
     background_tasks.add_task(pdpl_auto_delete, path)
 
+    audio_info = _probe_audio(path)  # also enforces MAX_AUDIO_SECONDS (413)
+
     t0 = time.perf_counter()
 
     if model == ModelType.classical:
@@ -462,6 +533,9 @@ async def detect(
         model=str(model),
         user=_user,
         timestamp=time.time(),
+        windows_analyzed=windows,
+        audio_info=audio_info,
+        app_version=__version__,
     )
     logger.info(
         "detect user=%s model=%s verdict=%s conf=%.3f windows=%d latency_ms=%.1f",
@@ -482,6 +556,22 @@ async def detect(
         windows_analyzed=windows,
         explanation=explanation,
     )
+
+
+CLONE_QUOTA_PER_HOUR = int(os.environ.get("VG_CLONE_QUOTA_PER_HOUR", "10"))
+_clone_log: dict[str, list[float]] = {}
+
+
+def _claim_clone_quota(user: str) -> bool:
+    """Per-user sliding-hour quota for voice cloning (the abuse-sensitive path)."""
+    now = time.time()
+    log = [t for t in _clone_log.get(user, []) if now - t < 3600]
+    if len(log) >= CLONE_QUOTA_PER_HOUR:
+        _clone_log[user] = log
+        return False
+    log.append(now)
+    _clone_log[user] = log
+    return True
 
 
 def _schedule_media_cleanup(path: Path) -> None:
@@ -520,7 +610,7 @@ async def synthesize(
     language: str = Form("en"),
     consent: bool = Form(False),  # UX acknowledgement only; gated in the UI
     reference: UploadFile | None = File(None),
-    _user: str = Depends(get_current_user),
+    claims: tuple[str, str] = Depends(get_current_claims),
 ):
     """Synthesise speech and return a watermarked audio URL.
 
@@ -535,6 +625,8 @@ async def synthesize(
     from voiceguard.watermark import c2pa_sign
     from voiceguard.watermark.c2pa_watermark import embed, ensure_carrier_sr
 
+    _user, _role = claims
+
     eng = synth_registry.get(engine)
     if eng is None or not eng.is_available():
         raise HTTPException(
@@ -544,6 +636,14 @@ async def synthesize(
 
     ref_path: str | None = None
     if eng.requires_reference:
+        # Voice cloning is the abuse-sensitive path: admin-only, with a per-user
+        # hourly quota on top of the route's per-IP rate limit. Preset TTS stays
+        # open to analysts.
+        if _role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Voice cloning requires the 'admin' role.",
+            )
         # Voice cloning consent is enforced server-side, not just in the UI.
         if not consent:
             raise HTTPException(
@@ -556,6 +656,13 @@ async def synthesize(
         if reference is None:
             raise HTTPException(
                 status_code=422, detail=f"Engine '{engine}' requires a reference audio clip."
+            )
+        # Claimed only once the request is otherwise valid, so rejected attempts
+        # don't burn the user's quota.
+        if not _claim_clone_quota(_user):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Voice-clone quota reached ({CLONE_QUOTA_PER_HOUR}/hour per user).",
             )
         ref_path, _ = await save_upload(reference)
         background_tasks.add_task(pdpl_auto_delete, ref_path)
@@ -652,6 +759,16 @@ async def forensic_report(
         f"Verdict: {record['label']} (server-verified)",
     )
 
+    audio_meta = dict(record.get("audio_info") or {})
+    if record.get("windows_analyzed") is not None:
+        audio_meta["windows_analyzed"] = record["windows_analyzed"]
+    model_meta = {
+        "model": record["model"],
+        "app_version": record.get("app_version", __version__),
+        # Cached after the first report; ~1 GB SSL checkpoint hashes in seconds.
+        "checkpoint_sha256": registry.fingerprint(record["model"]),
+    }
+
     # uuid4, not a timestamp: /media is unauthenticated, so names must be unguessable
     fname = f"report_{body.audio_hash[:12]}_{uuid.uuid4().hex}.pdf"
     out_path = MEDIA_DIR / fname
@@ -662,6 +779,8 @@ async def forensic_report(
             chain_of_custody=coc.to_dict(),
             analyst_name=body.analyst_name,
             output_path=out_path,
+            audio_meta=audio_meta or None,
+            model_meta=model_meta,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Report generation failed: {exc}") from exc
@@ -673,27 +792,103 @@ async def forensic_report(
     )
 
 
+class _ConnectionBudget:
+    """Process-wide cap on concurrent streaming connections.
+
+    Every stream window drives model inference on a CPU box, so an uncapped
+    WebSocket is a one-client DoS. Single event loop => plain counter is safe.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        self.active = 0
+
+    def acquire(self) -> bool:
+        if self.active >= self.limit:
+            return False
+        self.active += 1
+        return True
+
+    def release(self) -> None:
+        self.active = max(0, self.active - 1)
+
+
+_stream_budget = _ConnectionBudget(int(os.environ.get("VG_WS_MAX_CONNECTIONS", "4")))
+_WS_MAX_SECONDS = float(os.environ.get("VG_WS_MAX_SECONDS", "900"))
+_WS_PCM_BYTES_PER_S = 16000 * 2  # realtime int16 @ 16 kHz
+_WS_RATE_SLACK = 4.0  # tolerate 4x realtime (buffered sends) before closing
+_WS_BURST_BYTES = 512 * 1024
+
+
+async def _ws_first_message_token(websocket: WebSocket) -> str:
+    """Read the JWT from the first WS message: ``{"token": "<jwt>"}``.
+
+    Preferred over ``?token=`` — query strings end up in nginx/proxy access
+    logs. Returns "" on timeout, non-text frame, or malformed JSON.
+    """
+    import asyncio
+    import json
+
+    try:
+        msg = await asyncio.wait_for(websocket.receive(), timeout=5.0)
+    except TimeoutError:
+        return ""
+    if msg.get("type") == "websocket.disconnect":
+        raise WebSocketDisconnect(code=int(msg.get("code") or 1000))
+    text = msg.get("text")
+    if not text:
+        return ""
+    try:
+        return str(json.loads(text).get("token", ""))
+    except (ValueError, AttributeError):
+        return ""
+
+
 @app.websocket("/ws/stream")
 async def websocket_stream(websocket: WebSocket, token: str = ""):
     """Real-time microphone streaming detection.
 
-    Client sends raw PCM frames (int16, 16kHz, mono).
-    Server responds with JSON StreamDetectionEvent messages.
+    Auth: send ``{"token": "<jwt>"}`` as the first (text) message — the server
+    replies ``{"type": "auth_ok"}`` — then stream raw PCM frames (int16, 16kHz,
+    mono). ``?token=`` works too but is deprecated (it leaks into proxy logs).
+    Server responds with JSON StreamDetectionEvent messages. Connections are
+    capped globally (VG_WS_MAX_CONNECTIONS), per-session (VG_WS_MAX_SECONDS),
+    and at ~4x realtime ingest.
     """
     await websocket.accept()
+    if not token:
+        try:
+            token = await _ws_first_message_token(websocket)
+        except WebSocketDisconnect:
+            return
     try:
         verify_token_ws(token)
     except HTTPException:
         await websocket.close(code=1008)
         return
 
+    if not _stream_budget.acquire():
+        await websocket.close(code=1013)  # try again later — all slots busy
+        return
+
     buffer = bytearray()
     window_id = 0
     WINDOW_BYTES = 16000 * 2 * 3  # 3 seconds of int16 @ 16kHz
+    started = time.monotonic()
+    received = 0
 
     try:
+        await websocket.send_json({"type": "auth_ok"})
         while True:
             data = await websocket.receive_bytes()
+            received += len(data)
+            elapsed = time.monotonic() - started
+            if elapsed > _WS_MAX_SECONDS:
+                await websocket.close(code=1000)
+                return
+            if received > _WS_BURST_BYTES + elapsed * _WS_PCM_BYTES_PER_S * _WS_RATE_SLACK:
+                await websocket.close(code=1008)  # faster than any real microphone
+                return
             buffer.extend(data)
             while len(buffer) >= WINDOW_BYTES:
                 window = bytes(buffer[:WINDOW_BYTES])
@@ -715,6 +910,8 @@ async def websocket_stream(websocket: WebSocket, token: str = ""):
 
     except WebSocketDisconnect:
         pass
+    finally:
+        _stream_budget.release()
 
 
 def _verify_twilio_signature(websocket: WebSocket) -> bool:
@@ -759,6 +956,9 @@ async def twilio_stream(websocket: WebSocket):
         await websocket.close(code=1008)  # rejects the handshake with HTTP 403
         return
     await websocket.accept()
+    if not _stream_budget.acquire():
+        await websocket.close(code=1013)  # all inference slots busy
+        return
     try:
         from voiceguard.voip.twilio_bridge import TwilioStreamHandler
 
@@ -768,6 +968,64 @@ async def twilio_stream(websocket: WebSocket):
         pass
     except ImportError:
         await websocket.close(code=1011)
+    finally:
+        _stream_budget.release()
+
+
+@app.post("/watermark/verify", response_model=WatermarkVerifyResult, tags=["synthesis"])
+@limiter.limit("30/minute")
+async def watermark_verify(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    watermark_id: str = Form(""),
+    _user: str = Depends(get_current_user),
+):
+    """Verify the provenance of an audio file — the read side of /synthesize.
+
+    Checks two independent marks: the keyed spectral watermark (only when the
+    `watermark_id` returned by /synthesize is supplied) and the embedded C2PA
+    manifest (cryptographic provenance, no key needed). Closes the
+    Generate → Detect loop: anything VoiceGuard synthesises can be proven so.
+    """
+    from voiceguard.watermark import c2pa_sign
+    from voiceguard.watermark.c2pa_watermark import detect as wm_detect
+
+    path, _ = await save_upload(file)
+    background_tasks.add_task(pdpl_auto_delete, path)
+
+    result = WatermarkVerifyResult()
+
+    if watermark_id:
+        data, sr = _read_audio(path)
+        detected, corr = wm_detect(data, sr=sr, watermark_id=watermark_id)
+        result.spectral_checked = True
+        result.spectral_detected = bool(detected)
+        result.spectral_correlation = round(float(corr), 6)
+
+    c2pa = c2pa_sign.verify_file(path)
+    result.c2pa_has_manifest = bool(c2pa.get("has_manifest"))
+    result.c2pa_validation_state = c2pa.get("validation_state")
+    result.c2pa_ai_generated = c2pa.get("ai_generated")
+    result.c2pa_software_agent = c2pa.get("software_agent")
+
+    if result.spectral_detected:
+        result.verdict = "voiceguard-generated"
+    elif result.c2pa_ai_generated:
+        result.verdict = "ai-generated"
+    elif result.c2pa_has_manifest:
+        result.verdict = "unknown"
+    else:
+        result.verdict = "no-provenance-found"
+
+    logger.info(
+        "watermark/verify user=%s spectral=%s c2pa=%s verdict=%s",
+        _user,
+        result.spectral_detected if result.spectral_checked else "skipped",
+        result.c2pa_has_manifest,
+        result.verdict,
+    )
+    return result
 
 
 @app.post("/explain", response_model=ExplanationResult, tags=["detection"])

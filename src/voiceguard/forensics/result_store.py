@@ -27,8 +27,15 @@ def record(
     model: str,
     user: str,
     timestamp: float,
+    **extra: Any,
 ) -> None:
-    """Store (or refresh) the server-verified detection result for an audio hash."""
+    """Store (or refresh) the server-verified detection result for an audio hash.
+
+    ``extra`` carries report-grade metadata captured at detection time (audio
+    duration/sample-rate/format, windows analyzed, model version + checkpoint
+    fingerprint) so /forensic/report can include it without re-reading audio
+    that PDPL has already deleted.
+    """
     with _lock:
         _store[audio_hash] = {
             "label": label,
@@ -36,6 +43,7 @@ def record(
             "model": model,
             "user": user,
             "timestamp": timestamp,
+            **extra,
         }
         _store.move_to_end(audio_hash)
         while len(_store) > MAX_ENTRIES:

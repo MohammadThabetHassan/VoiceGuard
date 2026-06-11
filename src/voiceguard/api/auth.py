@@ -41,6 +41,18 @@ _USER_PASSWORD_ENV: dict[str, str] = {
     "analyst": "VG_ANALYST_PASSWORD",
 }
 
+# Role per account. "admin" additionally unlocks voice cloning (/synthesize with
+# a reference clip); "analyst" covers detection, reports, and preset TTS.
+_USER_ROLES: dict[str, str] = {
+    "admin": "admin",
+    "analyst": "analyst",
+}
+
+
+def role_for(username: str) -> str:
+    """Role for a username (defaults to least-privileged)."""
+    return _USER_ROLES.get(username, "analyst")
+
 
 def is_dev_mode() -> bool:
     """True unless VG_ENV is explicitly set to production."""
@@ -82,6 +94,16 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
 
 def verify_token(token: str) -> str:
     """Decode and verify JWT. Returns username on success."""
+    return verify_token_claims(token)[0]
+
+
+def verify_token_claims(token: str) -> tuple[str, str]:
+    """Decode and verify JWT. Returns (username, role) on success.
+
+    Tokens minted before roles existed carry no "role" claim — they resolve via
+    role_for(), so an old admin token keeps admin and unknown users get the
+    least-privileged role.
+    """
     credentials_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired token",
@@ -92,13 +114,36 @@ def verify_token(token: str) -> str:
         username: str | None = payload.get("sub")
         if username is None:
             raise credentials_exc
-        return username
+        return username, payload.get("role") or role_for(username)
     except JWTError as err:
         raise credentials_exc from err
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> str:
     return verify_token(token)
+
+
+async def get_current_claims(token: str = Depends(oauth2_scheme)) -> tuple[str, str]:
+    """Dependency variant of get_current_user that also yields the role."""
+    return verify_token_claims(token)
+
+
+def require_role(role: str):
+    """Dependency factory: the authenticated user must hold *role*.
+
+    Usage: ``user: str = Depends(require_role("admin"))``.
+    """
+
+    async def _checker(token: str = Depends(oauth2_scheme)) -> str:
+        username, user_role = verify_token_claims(token)
+        if user_role != role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"This operation requires the '{role}' role.",
+            )
+        return username
+
+    return _checker
 
 
 def authenticate_user(username: str, password: str) -> bool:

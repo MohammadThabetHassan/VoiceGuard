@@ -78,6 +78,29 @@ class SynthesisEngineInfo(BaseModel):
     description: str = ""
 
 
+class WatermarkVerifyResult(BaseModel):
+    """Provenance verification for an uploaded audio file."""
+
+    # Spectral watermark — only checkable when the client supplies the
+    # watermark_id returned by /synthesize (the mark is keyed by it).
+    spectral_checked: bool = Field(
+        False, description="True when a watermark_id was supplied and the spectral check ran"
+    )
+    spectral_detected: bool = False
+    spectral_correlation: float | None = Field(
+        None, description="Normalised cross-correlation against the keyed carrier"
+    )
+    # C2PA manifest (cryptographic provenance), independent of watermark_id.
+    c2pa_has_manifest: bool = False
+    c2pa_validation_state: str | None = None
+    c2pa_ai_generated: bool | None = None
+    c2pa_software_agent: str | None = None
+    verdict: str = Field(
+        "unknown",
+        description="'voiceguard-generated' | 'ai-generated' | 'no-provenance-found' | 'unknown'",
+    )
+
+
 class ForensicReportRequest(BaseModel):
     audio_hash: str
     analyst_name: str = Field(default="Automated System")

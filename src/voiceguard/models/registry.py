@@ -8,6 +8,7 @@ is not set. The /detect endpoint and /health both use this registry.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from collections.abc import Callable
@@ -186,6 +187,7 @@ _REGISTRY_DEF: dict[str, dict] = {
 class ModelRegistry:
     def __init__(self) -> None:
         self._cache: dict[str, Any] = {}
+        self._fingerprints: dict[str, str | None] = {}
 
     def _resolve_path(self, key: str) -> Path | None:
         defn = _REGISTRY_DEF.get(key, {})
@@ -236,8 +238,32 @@ class ModelRegistry:
             }
         return result
 
+    def fingerprint(self, key: str) -> str | None:
+        """SHA-256 of the checkpoint file behind *key* (None if unresolved).
+
+        Computed once and cached — checkpoints are immutable for a running
+        process, and the forensic report needs a stable model identity. The
+        ~1 GB SSL checkpoint hashes in a few seconds on first request.
+        """
+        if key in self._fingerprints:
+            return self._fingerprints[key]
+        path = self._resolve_path(key)
+        fp: str | None = None
+        if path is not None:
+            try:
+                h = hashlib.sha256()
+                with open(path, "rb") as f:
+                    while chunk := f.read(8 * 1024 * 1024):
+                        h.update(chunk)
+                fp = h.hexdigest()
+            except OSError:
+                logger.warning("could not fingerprint checkpoint for %s", key, exc_info=True)
+        self._fingerprints[key] = fp
+        return fp
+
     def invalidate(self, key: str) -> None:
         self._cache.pop(key, None)
+        self._fingerprints.pop(key, None)
 
 
 registry = ModelRegistry()
