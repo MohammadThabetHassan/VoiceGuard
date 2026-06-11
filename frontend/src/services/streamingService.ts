@@ -3,8 +3,10 @@
  *
  * Protocol: open the socket, send `{"token": "<jwt>"}` as the first message
  * (keeps the JWT out of proxy access logs), wait for `{"type": "auth_ok"}`,
- * then stream raw PCM (int16, 16 kHz, mono). The server scores a sliding 3s
- * window every second and replies with StreamDetectionEvent JSON.
+ * then stream raw PCM (int16, 16 kHz, mono). The server re-scores the session
+ * from its start as audio arrives (first verdict at 3s, then every ~2s) and
+ * replies with StreamDetectionEvent JSON; the event with `final: true` covers
+ * the full scoring cap and is the last one — later audio is not analyzed.
  */
 import { getWsUrl, getToken } from '../config/apiConfig'
 
@@ -14,6 +16,7 @@ export type StreamEvent = {
   label: 'real' | 'fake'
   confidence: number
   model: string | null
+  final?: boolean
 }
 
 export type StreamStatus =

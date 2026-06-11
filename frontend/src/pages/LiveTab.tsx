@@ -47,7 +47,7 @@ function VerdictCard({ event }: { event: StreamEvent }) {
 function Timeline({ events }: { events: StreamEvent[] }) {
   return (
     <div className="bg-gray-800 rounded-xl p-5 border border-gray-700 space-y-2">
-      <p className="text-sm font-medium text-gray-300">Last {MAX_TIMELINE} windows (1s hop)</p>
+      <p className="text-sm font-medium text-gray-300">Session verdicts</p>
       <div className="flex items-end gap-px h-12">
         {events.map((e) => (
           <div
@@ -59,7 +59,8 @@ function Timeline({ events }: { events: StreamEvent[] }) {
         ))}
       </div>
       <p className="text-[11px] text-gray-600">
-        Each bar is a 3-second window scored every second — green real, red fake.
+        Each bar re-scores the session from the moment you pressed Start (first at 3s, then
+        every ~2s) — green real, red fake.
       </p>
     </div>
   )
@@ -98,8 +99,9 @@ export default function LiveTab() {
       <div>
         <h2 className="text-xl font-semibold text-white mb-1">Live Microphone Analysis</h2>
         <p className="text-sm text-gray-400">
-          Streams your microphone to the detector in real time — a verdict per second after a
-          3-second warm-up. Audio is scored in memory and never written to disk.
+          Streams your microphone to the detector in real time — the session is re-scored from
+          its start as you speak (first verdict at 3s, then every ~2s) until the verdict is
+          final. Audio is scored in memory and never written to disk.
         </p>
       </div>
 
@@ -145,6 +147,13 @@ export default function LiveTab() {
       {latest && (
         <div className="space-y-4">
           <VerdictCard event={latest} />
+          {latest.final && (
+            <div className="bg-indigo-900/30 border border-indigo-700 rounded-lg p-4 text-indigo-300 text-sm">
+              Verdict final — the session&apos;s opening seconds (up to the server&apos;s scoring
+              cap) have been analyzed; audio beyond the cap is not scored. Stop and restart to
+              analyze a new utterance.
+            </div>
+          )}
           <Timeline events={events} />
         </div>
       )}

@@ -186,8 +186,14 @@ _REGISTRY_DEF: dict[str, dict] = {
 
 class ModelRegistry:
     def __init__(self) -> None:
+        import threading
+
         self._cache: dict[str, Any] = {}
         self._fingerprints: dict[str, str | None] = {}
+        # load() now also runs on worker threads (asyncio.to_thread in the
+        # streaming paths); without a lock two cold-start streams would both
+        # miss the cache and load the same multi-GB checkpoint twice.
+        self._load_lock = threading.Lock()
 
     def _resolve_path(self, key: str) -> Path | None:
         defn = _REGISTRY_DEF.get(key, {})
@@ -200,23 +206,26 @@ class ModelRegistry:
 
     def load(self, key: str) -> Any | None:
         """Load and cache model by key. Returns None if no checkpoint found."""
-        if key in self._cache:
+        if key in self._cache:  # fast path, no lock once warm
             return self._cache[key]
-        defn = _REGISTRY_DEF.get(key)
-        if defn is None:
-            return None
-        path = self._resolve_path(key)
-        if path is None:
-            self._cache[key] = None
-            return None
-        try:
-            model = defn["loader"](path)
-            self._cache[key] = model
-            return model
-        except Exception:
-            logger.exception("Failed to load model '%s' from %s", key, path)
-            self._cache[key] = None
-            return None
+        with self._load_lock:
+            if key in self._cache:  # a concurrent caller loaded it while we waited
+                return self._cache[key]
+            defn = _REGISTRY_DEF.get(key)
+            if defn is None:
+                return None
+            path = self._resolve_path(key)
+            if path is None:
+                self._cache[key] = None
+                return None
+            try:
+                model = defn["loader"](path)
+                self._cache[key] = model
+                return model
+            except Exception:
+                logger.exception("Failed to load model '%s' from %s", key, path)
+                self._cache[key] = None
+                return None
 
     def preload(self, keys: list[str] | None = None) -> None:
         """Eagerly load models whose env-vars are set (called at app startup)."""

@@ -107,8 +107,19 @@ def test_stream_processor_reset():
     sp = StreamProcessor(input_sr=8000, target_sr=16000)
     sp.push(np.zeros(4000, dtype=np.float32))
     sp.reset()
-    assert len(sp._buffer) == 0
+    assert sp._buffered == 0
+    assert sp._received == 0
+    assert sp._final is False
     assert sp._window_id == 0
+
+
+def test_stream_processor_final_verdict_stops_scoring():
+    sp = StreamProcessor(input_sr=16000, target_sr=16000, score_cap_s=4.0)
+    first = sp.push(np.zeros(3 * 16000, dtype=np.float32))  # 3s → first verdict, below cap
+    assert first is not None and first["final"] is False
+    final = sp.push(np.zeros(3 * 16000, dtype=np.float32))  # crosses the 4s cap
+    assert final is not None and final["final"] is True
+    assert sp.push(np.zeros(3 * 16000, dtype=np.float32)) is None  # frozen — no more results
 
 
 def test_stream_processor_confidence_range():

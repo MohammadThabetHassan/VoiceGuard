@@ -122,7 +122,7 @@ export default function VerifyTab() {
         <input
           ref={fileRef}
           type="file"
-          accept=".wav,.mp3,.flac,audio/*"
+          accept=".wav,.mp3,.flac,.ogg,audio/*"
           className="hidden"
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
         />

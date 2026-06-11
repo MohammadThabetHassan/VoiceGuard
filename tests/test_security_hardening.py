@@ -72,7 +72,19 @@ async def test_detect_rejects_disguised_text_415(auth_client):
         files={"file": ("evil.wav", b"#!/bin/sh\necho pwned\n" * 4, "audio/wav")},
     )
     assert resp.status_code == 415
-    assert "not WAV, MP3, or FLAC" in resp.json()["detail"]
+    assert "not WAV, MP3, FLAC, or OGG" in resp.json()["detail"]
+
+
+def test_sniff_accepts_all_advertised_formats():
+    from voiceguard.api.main import _sniff_is_audio
+
+    assert _sniff_is_audio(b"RIFF\x24\x08\x00\x00WAVEfmt ")
+    assert _sniff_is_audio(b"fLaC\x00\x00\x00\x22" + b"\x00" * 4)
+    assert _sniff_is_audio(b"OggS\x00\x02\x00\x00\x00\x00\x00\x00")  # OGG capture pattern
+    assert _sniff_is_audio(b"ID3\x04\x00\x00\x00\x00\x00\x00\x00\x00")
+    assert _sniff_is_audio(b"\xff\xfb\x90\x00" + b"\x00" * 8)  # bare MPEG frame sync
+    assert not _sniff_is_audio(b"#!/bin/sh\n\x00\x00")
+    assert not _sniff_is_audio(b"OggX" + b"\x00" * 8)
 
 
 @pytest.mark.asyncio

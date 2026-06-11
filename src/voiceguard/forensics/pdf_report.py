@@ -89,7 +89,8 @@ def generate_report(
             ["Sample Rate (Hz)", str(audio_meta.get("sample_rate", "—"))],
             ["Channels", str(audio_meta.get("channels", "—"))],
             ["Container / Codec", str(audio_meta.get("format", "—"))],
-            ["Windows Analyzed (3s)", str(audio_meta.get("windows_analyzed", "—"))],
+            ["Audio Scored (s)", str(audio_meta.get("seconds_analyzed", "—"))],
+            ["Analysis Passes", str(audio_meta.get("windows_analyzed", "—"))],
         ]
         at = Table(am, colWidths=[5 * cm, 12 * cm])
         at.setStyle(

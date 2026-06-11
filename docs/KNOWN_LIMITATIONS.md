@@ -23,10 +23,12 @@ Root cause: real recordings open with ambient lead-in / natural onset, while TTS
 output starts mid-speech — the model partly keys on this. Consequences:
 
 - **`/detect` scores one full-clip pass** (capped at `VG_SCORE_SECONDS`, default
-  60 s); streams (`/ws/stream`, Twilio) score the **growing prefix from the
-  session start** (capped at `VG_WS_SCORE_SECONDS`, default 15 s), after which
-  the verdict is final. A fake segment spliced into the middle/tail of a long
-  real recording is therefore **out of scope** — the model cannot localise it.
+  60 s; the response's `seconds_analyzed` discloses coverage); streams
+  (`/ws/stream`, Twilio) score the **growing prefix from the session start**
+  (capped at `VG_WS_SCORE_SECONDS`, default 15 s), after which the verdict is
+  emitted once with `final: true` and scoring stops. A fake segment spliced into
+  the middle/tail of a long real recording is therefore **out of scope** — the
+  model cannot localise it.
 - **Adversarial evasion (measured, disclosed):** prepending ~0.5 s of silence to
   a TTS clip shifts some fakes toward "real" (worst held-out case: IndexTTS-2
   0.99 → 0.03). An attacker who records a clone with a quiet lead-in weakens

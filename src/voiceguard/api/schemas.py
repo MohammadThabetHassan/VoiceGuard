@@ -44,7 +44,18 @@ class DetectionResult(BaseModel):
     latency_ms: float
     audio_hash: str = Field(..., description="SHA-256 of uploaded audio")
     windows_analyzed: int = Field(
-        1, description="Number of 3s windows scored (>1 for clips longer than 3s)"
+        1,
+        description=(
+            "Number of model passes — always 1: the clip is scored in a single "
+            "full-clip pass from its start (sliding windows misclassify)"
+        ),
+    )
+    seconds_analyzed: float | None = Field(
+        None,
+        description=(
+            "How many seconds of the clip the verdict covers — min(duration, "
+            "VG_SCORE_SECONDS). Less than the duration means the tail was not scored."
+        ),
     )
     explanation: ExplanationResult | None = Field(
         None, description="Integrated Gradients attribution (only when explain=true)"
@@ -145,5 +156,12 @@ class StreamDetectionEvent(BaseModel):
     confidence: float
     model: str | None = Field(
         None, description="Which detector scored the window: xls_r_aasist | classical | stub"
+    )
+    final: bool = Field(
+        False,
+        description=(
+            "True when this verdict covers the full scoring cap (VG_WS_SCORE_SECONDS) "
+            "— it is the session's last scored verdict; later audio is not analyzed"
+        ),
     )
     eer_estimate: float | None = None

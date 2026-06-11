@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **OGG upload support.** `/detect`, `/explain`, `/watermark/verify` and the
+  forensic path now accept OGG (Vorbis) uploads — magic-byte sniffed via the
+  `OggS` capture pattern, decoded by libsndfile like the other formats.
+- **`seconds_analyzed`** on `DetectionResult` and in the forensic PDF
+  ("Audio Scored (s)") — discloses exactly how much of a long clip the verdict
+  covers (`min(duration, VG_SCORE_SECONDS)`); the PDF's misleading
+  "Windows Analyzed (3s)" row is gone.
+- **`final` flag on stream verdicts.** `/ws/stream` and the Twilio bridge mark
+  the verdict that covers the full scoring cap with `final: true`, stop scoring,
+  and stop re-emitting; the Live tab shows a "verdict final" notice instead of
+  painting frozen verdicts as fresh per-second analysis.
+
 ### Fixed
+- **Review follow-ups on the single-pass detection change:** the Twilio bridge
+  now runs inference off the event loop (`asyncio.to_thread`, same as
+  `/ws/stream`) and honors `VG_WS_SCORE_SECONDS` (was a hardcoded 15s); the
+  silence guard checks the region actually scored, not the whole clip; scoring
+  caps are defensively parsed and clamped (≥3s, even-aligned) so a bad env value
+  can't crash a stream or score zero-padding; overdue stream milestones are
+  coalesced into one pass over the freshest prefix (a burst no longer triggers
+  a backlog of stale inferences); `ModelRegistry.load()` is now thread-safe
+  (two cold-start streams could double-load the 1.2GB checkpoint); the Twilio
+  buffer is preallocated (was O(n²) np.concatenate per 20ms frame); and the
+  `/detect` OpenAPI docs / schema descriptions no longer describe the removed
+  sliding-window behavior.
 - **Real voices no longer flagged fake on long clips / Live streaming.**
   Sliding-window scoring (max, then mean aggregation) misclassified genuine
   recordings: mid-utterance 3 s windows are out-of-distribution for the SSL

@@ -159,28 +159,40 @@ app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-ACCEPTED_CONTENT_TYPES = {"audio/wav", "audio/wave", "audio/x-wav", "audio/mpeg", "audio/flac"}
-ACCEPTED_SUFFIXES = {".wav", ".mp3", ".flac"}
+ACCEPTED_CONTENT_TYPES = {
+    "audio/wav",
+    "audio/wave",
+    "audio/x-wav",
+    "audio/mpeg",
+    "audio/flac",
+    "audio/ogg",
+    "application/ogg",
+}
+ACCEPTED_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg", ".oga"}
 MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100MB
 _UPLOAD_CHUNK = 1024 * 1024  # 1MB
-# Longest clip /detect will analyse. libsndfile decode + up to 60 SSL windows run
-# synchronously in the request, so an unbounded clip on CPU times out the 120s
-# nginx proxy window — reject early with a clear message instead of a 504.
+# Longest clip /detect will accept. libsndfile decode + one forward pass over up
+# to VG_SCORE_SECONDS of audio run synchronously in the request, so an unbounded
+# clip on CPU times out the 120s nginx proxy window — reject early with a clear
+# message instead of a 504.
 MAX_AUDIO_SECONDS = float(os.environ.get("VG_MAX_AUDIO_SECONDS", "600"))
 
 
 def _sniff_is_audio(head: bytes) -> bool:
-    """True when *head* starts like one of the advertised formats (WAV/FLAC/MP3).
+    """True when *head* starts like one of the advertised formats (WAV/FLAC/MP3/OGG).
 
     Extension and Content-Type are attacker-controlled; the bytes are what
     libsndfile will actually parse, so gate on them. MP3 is ID3-tagged or starts
-    straight at an MPEG frame sync (0xFFEx).
+    straight at an MPEG frame sync (0xFFEx); OGG containers always open with the
+    "OggS" capture pattern.
     """
     if len(head) < 12:
         return False
     if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
         return True
     if head[:4] == b"fLaC":
+        return True
+    if head[:4] == b"OggS":
         return True
     if head[:3] == b"ID3":
         return True
@@ -201,7 +213,7 @@ async def save_upload(upload: UploadFile) -> tuple[str, str]:
     if ctype not in ACCEPTED_CONTENT_TYPES and suffix not in ACCEPTED_SUFFIXES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Unsupported media type — upload WAV, MP3, or FLAC audio.",
+            detail="Unsupported media type — upload WAV, MP3, FLAC, or OGG audio.",
         )
 
     fd, path = make_temp_audio_file(suffix=suffix)
@@ -217,7 +229,7 @@ async def save_upload(upload: UploadFile) -> tuple[str, str]:
                     if not _sniff_is_audio(chunk[:12]):
                         raise HTTPException(
                             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                            detail="File content is not WAV, MP3, or FLAC audio.",
+                            detail="File content is not WAV, MP3, FLAC, or OGG audio.",
                         )
                     sniffed = True
                 total += len(chunk)
@@ -231,7 +243,7 @@ async def save_upload(upload: UploadFile) -> tuple[str, str]:
         if not sniffed:  # empty body never entered the loop
             raise HTTPException(
                 status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                detail="Empty upload — send WAV, MP3, or FLAC audio.",
+                detail="Empty upload — send WAV, MP3, FLAC, or OGG audio.",
             )
     except HTTPException:
         Path(path).unlink(missing_ok=True)  # drop the partial file
@@ -255,7 +267,7 @@ def _probe_audio(path: str) -> dict:
     except (RuntimeError, sf.LibsndfileError) as exc:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Could not decode audio — upload valid WAV, MP3, or FLAC.",
+            detail="Could not decode audio — upload valid WAV, MP3, FLAC, or OGG.",
         ) from exc
     if info.duration > MAX_AUDIO_SECONDS:
         raise HTTPException(
@@ -317,8 +329,21 @@ _SSL_KEYS = {
     "xls_r_aasist",
 }
 _WIN = 48000  # 3s @ 16kHz
+
+
+def _score_seconds_env(name: str, default: float) -> float:
+    """Parse a scoring-cap env var defensively: fall back on garbage, clamp to
+    the 3s model minimum (a smaller cap would silently score zero-padding)."""
+    try:
+        value = float(os.environ.get(name, default))
+    except ValueError:
+        logger.warning("%s is not a number; using default %.0fs", name, default)
+        value = default
+    return max(value, _WIN / 16000)
+
+
 # Longest audio scored in the single forward pass (memory/latency bound on CPU).
-_SCORE_MAX_S = float(os.environ.get("VG_SCORE_SECONDS", "60"))
+_SCORE_MAX_S = _score_seconds_env("VG_SCORE_SECONDS", 60.0)
 
 
 def _load_wav_mono16k(path: str):
@@ -371,14 +396,15 @@ def _ssl_fake_prob(model, wav, model_key: str) -> float:
         return float(torch.softmax(model(inp), dim=-1)[0, 1])
 
 
-def _detect_ssl_tensor(wav, model_key: str) -> tuple[str, float, int]:
+def _detect_ssl_tensor(wav, model_key: str) -> tuple[str, float, float]:
     """Single-pass SSL detection on the clip from its natural start.
 
-    Returns (label, confidence, n_passes). n_passes is always 1 — earlier
-    sliding-window aggregations (max, then mean) both misclassified real
-    recordings because mid-utterance windows are out-of-distribution for the
-    detector; the whole clip in one pass matches the regime the model's official
-    EER and held-out real-pass were validated under.
+    Returns (label, confidence, seconds_analyzed). Earlier sliding-window
+    aggregations (max, then mean) both misclassified real recordings because
+    mid-utterance windows are out-of-distribution for the detector; the whole
+    clip in one pass matches the regime the model's official EER and held-out
+    real-pass were validated under. seconds_analyzed = min(duration,
+    VG_SCORE_SECONDS) so callers and forensic reports can disclose truncation.
     """
     model = registry.load(model_key)
     if model is None:
@@ -386,11 +412,15 @@ def _detect_ssl_tensor(wav, model_key: str) -> tuple[str, float, int]:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Model '{model_key}' checkpoint not found. Set {model_key.upper()}_PATH.",
         )
-    _guard_audio_quality(wav)
+    # Guard the region that will actually be scored, not the whole clip — a long
+    # recording with a near-silent first VG_SCORE_SECONDS must 422, not let the
+    # model confidently call silence "fake".
+    scored = wav[..., : int(_SCORE_MAX_S * 16000)]
+    _guard_audio_quality(scored)
     fake_prob = _ssl_fake_prob(model, wav, model_key)
     label = "fake" if fake_prob >= 0.5 else "real"
     confidence = fake_prob if label == "fake" else 1.0 - fake_prob
-    return label, round(confidence, 4), 1
+    return label, round(confidence, 4), round(scored.shape[-1] / 16000, 2)
 
 
 def _detect_ssl(path: str, model_key: str) -> tuple[str, float, int]:
@@ -466,13 +496,14 @@ async def detect(
 ):
     """Upload an audio file and receive a deepfake detection result.
 
-    Accepted formats: WAV, MP3, FLAC (max 100MB). Clips longer than 3s are scored
-    with a sliding 3s window (1.5s hop) over the speech segments; the verdict is
-    the mean per-window fake probability, so a few noisy/paused windows don't flip
-    a real recording to fake (`windows_analyzed` reports the speech-window count).
-    Raw audio is auto-deleted after 60 seconds (PDPL compliance). Pass
-    `explain=true` to include Integrated Gradients attribution showing which time
-    segments drove the decision.
+    Accepted formats: WAV, MP3, FLAC, OGG (max 100MB). The clip is scored in a
+    single forward pass from its natural start, exactly as recorded — sliding
+    windows misclassify (mid-utterance segments read as synthetic to the model)
+    — capped at VG_SCORE_SECONDS (default 60s) of audio; `seconds_analyzed`
+    reports how much of the clip the verdict covers. Raw audio is auto-deleted
+    after 60 seconds (PDPL compliance). Pass `explain=true` to include
+    Integrated Gradients attribution showing which time segments drove the
+    decision.
     """
     path, audio_hash = await save_upload(file)
     background_tasks.add_task(pdpl_auto_delete, path)
@@ -483,12 +514,12 @@ async def detect(
 
     if model == ModelType.classical:
         label, confidence = _detect_classical(path)
-        windows = 1
+        seconds_analyzed = audio_info.get("duration_s")
         explanation = None
     else:
         # Load the waveform once and share it between detection and attribution.
         wav = _load_wav_mono16k(path)
-        label, confidence, windows = _detect_ssl_tensor(wav, str(model))
+        label, confidence, seconds_analyzed = _detect_ssl_tensor(wav, str(model))
         explanation = None
         if explain:
             model_obj = registry.load(str(model))
@@ -505,17 +536,18 @@ async def detect(
         model=str(model),
         user=_user,
         timestamp=time.time(),
-        windows_analyzed=windows,
+        windows_analyzed=1,
+        seconds_analyzed=seconds_analyzed,
         audio_info=audio_info,
         app_version=__version__,
     )
     logger.info(
-        "detect user=%s model=%s verdict=%s conf=%.3f windows=%d latency_ms=%.1f",
+        "detect user=%s model=%s verdict=%s conf=%.3f analyzed_s=%s latency_ms=%.1f",
         _user,
         model,
         label,
         confidence,
-        windows,
+        seconds_analyzed,
         latency_ms,
     )
 
@@ -525,7 +557,8 @@ async def detect(
         model=model,
         latency_ms=round(latency_ms, 2),
         audio_hash=audio_hash,
-        windows_analyzed=windows,
+        windows_analyzed=1,
+        seconds_analyzed=seconds_analyzed,
         explanation=explanation,
     )
 
@@ -734,6 +767,8 @@ async def forensic_report(
     audio_meta = dict(record.get("audio_info") or {})
     if record.get("windows_analyzed") is not None:
         audio_meta["windows_analyzed"] = record["windows_analyzed"]
+    if record.get("seconds_analyzed") is not None:
+        audio_meta["seconds_analyzed"] = record["seconds_analyzed"]
     model_meta = {
         "model": record["model"],
         "app_version": record.get("app_version", __version__),
@@ -845,19 +880,22 @@ async def websocket_stream(websocket: WebSocket, token: str = ""):
 
     import asyncio
 
-    buffer = bytearray()
-    window_id = 0
-    BYTES_PER_S = 16000 * 2  # int16 @ 16kHz
-    FIRST_SCORE_S = 3.0
-    SCORE_STRIDE_S = 2.0
     # The detector is only reliable on audio scored from the recording's natural
     # start (see _ssl_fake_prob) — a mic stream's natural start is the moment the
-    # user hit Start. So each verdict re-scores the growing prefix of the session,
-    # capped at VG_WS_SCORE_SECONDS of audio (CPU cost grows with prefix length);
-    # past the cap the verdict is final and is simply re-emitted.
-    score_cap_bytes = int(float(os.environ.get("VG_WS_SCORE_SECONDS", "15")) * BYTES_PER_S)
-    next_score_at = int(FIRST_SCORE_S * BYTES_PER_S)
-    last_verdict: tuple[str, float, str] | None = None
+    # user hit Start. So each verdict re-scores the growing prefix of the session
+    # (first at 3s, then every ~2s), capped at VG_WS_SCORE_SECONDS of audio (CPU
+    # cost grows with prefix length). The verdict that covers the full cap is sent
+    # with final=true and scoring stops; the connection stays open only so the
+    # session/rate limits keep being enforced.
+    first_score_bytes = 3 * _WS_PCM_BYTES_PER_S
+    stride_bytes = 2 * _WS_PCM_BYTES_PER_S
+    cap_s = _score_seconds_env("VG_WS_SCORE_SECONDS", 15.0)
+    # Even-align so a prefix slice is always whole int16 samples.
+    score_cap_bytes = max(int(cap_s * _WS_PCM_BYTES_PER_S) & ~1, first_score_bytes)
+    buffer = bytearray()
+    window_id = 0
+    next_score_at = first_score_bytes
+    verdict_final = False
     started = time.monotonic()
     received = 0
 
@@ -875,24 +913,31 @@ async def websocket_stream(websocket: WebSocket, token: str = ""):
                 return
             if len(buffer) < score_cap_bytes:
                 buffer.extend(data)
-            while received >= next_score_at:
-                if last_verdict is None or next_score_at <= score_cap_bytes:
-                    prefix = bytes(buffer[: min(next_score_at, score_cap_bytes)])
-                    audio = np.frombuffer(prefix, dtype=np.int16).astype(np.float32) / 32768.0
-                    # to_thread: model inference must not block WS keepalives
-                    last_verdict = await asyncio.to_thread(_detect_ssl_array, audio, 16000)
-                label, confidence, used_model = last_verdict
+            if verdict_final or received < next_score_at:
+                continue
 
-                event = StreamDetectionEvent(
-                    timestamp_ms=time.time() * 1000,
-                    window_id=window_id,
-                    label=label,
-                    confidence=confidence,
-                    model=used_model,
-                )
-                await websocket.send_json(event.model_dump())
-                window_id += 1
-                next_score_at += int(SCORE_STRIDE_S * BYTES_PER_S)
+            # Coalesce overdue milestones: score the freshest prefix once instead
+            # of replaying every stale 2s boundary after a burst or a slow pass.
+            scored_to = min(received, score_cap_bytes, len(buffer)) & ~1
+            audio = (
+                np.frombuffer(buffer, dtype=np.int16, count=scored_to // 2).astype(np.float32)
+                / 32768.0
+            )
+            # to_thread: model inference must not block WS keepalives
+            label, confidence, used_model = await asyncio.to_thread(_detect_ssl_array, audio, 16000)
+            verdict_final = scored_to >= score_cap_bytes
+
+            event = StreamDetectionEvent(
+                timestamp_ms=time.time() * 1000,
+                window_id=window_id,
+                label=label,
+                confidence=confidence,
+                model=used_model,
+                final=verdict_final,
+            )
+            await websocket.send_json(event.model_dump())
+            window_id += 1
+            next_score_at = scored_to + stride_bytes
 
     except WebSocketDisconnect:
         pass

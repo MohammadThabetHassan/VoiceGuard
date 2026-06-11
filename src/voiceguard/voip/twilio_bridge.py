@@ -7,6 +7,7 @@ VoiceGuard detector.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import time
@@ -73,7 +74,9 @@ class TwilioStreamHandler:
                         continue
                     pcm_bytes = base64.b64decode(payload)
                     audio = ulaw_decode(pcm_bytes)
-                    result = self._processor.push(audio)
+                    # to_thread: prefix inference (up to the score cap) must not
+                    # block the event loop — same rule as /ws/stream.
+                    result = await asyncio.to_thread(self._processor.push, audio)
                     if result is not None:
                         await websocket.send_json(
                             {
