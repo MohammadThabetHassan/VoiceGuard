@@ -43,7 +43,7 @@ classical baseline was accepted at **IEEE SM2026**.
 
 - 🛡️ **Detection** — production **XLS-R-300M + AASIST** model (official ASVspoof 2021 LA eval EER **2.84%**, v9c) that *also* catches modern voice clones and premium TTS, with DSFNet, Wav2Vec2/WavLM, and a classical XGBoost baseline all selectable. An input-quality guard rejects silent / too-short clips instead of guessing.
 - 🌍 **Real-world robustness** — hardened against out-of-distribution TTS (Kokoro **93.3%**, IndexTTS2 **100%**) and noisy / telephony / short audio.
-- 🎙️ **Live microphone streaming** — the web app's **Live tab** streams your mic over WebSocket and shows a rolling real/fake verdict every second (3s analysis window).
+- 🎙️ **Live microphone streaming** — the web app's **Live tab** streams your mic over WebSocket and shows a live real/fake verdict that re-scores the session from its start as more audio arrives (first verdict at 3s; see [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) for why not sliding windows).
 - 🔍 **Explainability** — Integrated-Gradients attribution shows *which moments* drove the verdict.
 - 🗣️ **Synthesis + watermarking** — multi-engine Generate: local **Kokoro-82M** preset voices and optional **zero-shot voice cloning** (XTTS v2 / IndexTTS-2, admin-only) from a reference clip; every clip is spectrally watermarked as AI-generated and C2PA-signed. The **Verify tab** (`POST /watermark/verify`) closes the loop: prove any clip's provenance back. See [docs/SYNTHESIS_ENGINES.md](docs/SYNTHESIS_ENGINES.md).
 - 🧾 **Forensics** — SHA-256 chain-of-custody and NIST SP 800-86 PDF reports.

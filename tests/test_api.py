@@ -307,24 +307,21 @@ async def test_upload_too_large_413(auth_client, wav_bytes, monkeypatch):
     assert resp.status_code == 413
 
 
-# ── Sliding-window detection (P0-2) ─────────────────────────────────────────────
+# ── Single-pass detection (long clips) ──────────────────────────────────────────
+# Sliding-window aggregations (max, then mean) both misclassified real recordings:
+# mid-utterance windows are out-of-distribution for the SSL detector. A long clip
+# is now scored in ONE pass from its natural start (capped at VG_SCORE_SECONDS).
 
 
-def test_window_starts_covers_long_clip():
-    from voiceguard.api.main import _HOP, _MAX_WINDOWS, _WIN, _window_starts
+def test_score_cap_is_sane():
+    from voiceguard.api.main import _SCORE_MAX_S, _WIN
 
-    assert _window_starts(_WIN) == [0]  # <= 3s → single window
-    assert _window_starts(1000) == [0]
-    starts = _window_starts(_WIN * 4)
-    assert starts[0] == 0
-    assert starts[-1] == _WIN * 4 - _WIN  # tail always covered
-    assert len(starts) > 1
-    assert len(_window_starts(_WIN + _HOP * 5000)) <= _MAX_WINDOWS  # capped
+    assert _SCORE_MAX_S * 16000 >= _WIN  # cap can never go below the 3s minimum
 
 
 @pytest.mark.asyncio
 async def test_detect_long_clip_windows(auth_client, monkeypatch):
-    """A 10s clip is scored over multiple windows; a fake in any window → fake."""
+    """A 10s clip is scored in a single full-clip pass from its natural start."""
     import io
     import wave
 
@@ -354,7 +351,7 @@ async def test_detect_long_clip_windows(auth_client, monkeypatch):
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert data["windows_analyzed"] > 1
+    assert data["windows_analyzed"] == 1  # one full-clip pass, no sliding windows
     assert data["label"] == "fake"
 
 

@@ -317,8 +317,8 @@ _SSL_KEYS = {
     "xls_r_aasist",
 }
 _WIN = 48000  # 3s @ 16kHz
-_HOP = 24000  # 1.5s hop
-_MAX_WINDOWS = 60
+# Longest audio scored in the single forward pass (memory/latency bound on CPU).
+_SCORE_MAX_S = float(os.environ.get("VG_SCORE_SECONDS", "60"))
 
 
 def _load_wav_mono16k(path: str):
@@ -348,64 +348,37 @@ def _guard_audio_quality(wav) -> None:
         )
 
 
-def _window_starts(total: int) -> list[int]:
-    """3s windows with 1.5s hop over `total` samples (≤ _MAX_WINDOWS, evenly spaced)."""
-    if total <= _WIN:
-        return [0]
-    starts = list(range(0, total - _WIN + 1, _HOP))
-    if starts[-1] != total - _WIN:
-        starts.append(total - _WIN)  # always cover the tail
-    if len(starts) > _MAX_WINDOWS:
-        idx = np.linspace(0, len(starts) - 1, _MAX_WINDOWS).round().astype(int)
-        starts = [starts[i] for i in sorted(set(idx.tolist()))]
-    return starts
+def _ssl_fake_prob(model, wav, model_key: str) -> float:
+    """One forward pass over `wav` (1, T) from its natural start; returns fake-prob.
 
-
-_WINDOW_RMS_FLOOR = 0.01  # below this a window is silence/pause, not speech
-
-
-def _ssl_window_fake_probs(model, wav, model_key: str) -> list[float]:
-    """Score the speech-containing 3s windows of `wav` (1, T); return their
-    per-window fake-probabilities.
-
-    Near-silent windows (pauses/gaps) are skipped: the SSL detector collapses
-    silence/non-speech to a confident "fake", so scoring them would spuriously
-    drag a real recording toward fake. If every window is quiet, the single
-    loudest one is scored so we always return at least one probability.
+    The SSL detector is only reliable on a recording scored *as recorded, from
+    its start*: real audio opens with ambient lead-in while TTS starts mid-speech,
+    and chunks cut from the middle of an utterance read as synthetic regardless
+    of content (measured on the held-out set — sliding-window aggregations, max
+    and mean alike, therefore flag real recordings as fake). Prepending silence
+    is no fix either: it flips real fakes toward "real". So: single pass, capped
+    at VG_SCORE_SECONDS; non-SSL research models keep their validated 3s crop.
     """
     import torch
 
-    windows, rms = [], []
-    for s in _window_starts(wav.shape[-1]):
-        w = wav[..., s : s + _WIN].squeeze(0)
-        if w.shape[-1] < _WIN:
-            w = torch.nn.functional.pad(w, (0, _WIN - w.shape[-1]))
-        windows.append(w)
-        rms.append(float(w.pow(2).mean().sqrt()))
-
-    keep = [i for i, r in enumerate(rms) if r >= _WINDOW_RMS_FLOOR]
-    if not keep:  # whole clip is quiet — score the loudest window
-        keep = [int(np.argmax(rms))]
-    kept = [windows[i] for i in keep]
-
-    probs: list[float] = []
+    w = wav[..., : int(_SCORE_MAX_S * 16000)].squeeze(0)
+    if model_key not in _SSL_KEYS:
+        w = w[..., :_WIN]  # research CNNs are fixed-length 3s models
+    if w.shape[-1] < _WIN:
+        w = torch.nn.functional.pad(w, (0, _WIN - w.shape[-1]))
+    inp = w.unsqueeze(0) if model_key in _SSL_KEYS else w.reshape(1, 1, -1)
     with torch.no_grad():
-        for i in range(0, len(kept), 8):  # batch to bound memory
-            batch = torch.stack(kept[i : i + 8])  # (B, T)
-            inp = batch if model_key in _SSL_KEYS else batch.unsqueeze(1)  # (B,T) / (B,1,T)
-            p = torch.softmax(model(inp), dim=-1)[:, 1]
-            probs.extend(p.cpu().tolist())
-    return probs
+        return float(torch.softmax(model(inp), dim=-1)[0, 1])
 
 
 def _detect_ssl_tensor(wav, model_key: str) -> tuple[str, float, int]:
-    """Sliding-window SSL detection over the full clip. Returns (label, conf, n_windows).
+    """Single-pass SSL detection on the clip from its natural start.
 
-    ``fake_prob`` is the **mean** over the speech windows. A few noisy or paused
-    windows in an otherwise-real recording therefore can't flip the whole verdict
-    to fake (an earlier ``max`` aggregation over-flagged real-world mic/phone
-    audio), while a genuinely synthetic clip — whose windows are consistently
-    fake — still scores well above 0.5.
+    Returns (label, confidence, n_passes). n_passes is always 1 — earlier
+    sliding-window aggregations (max, then mean) both misclassified real
+    recordings because mid-utterance windows are out-of-distribution for the
+    detector; the whole clip in one pass matches the regime the model's official
+    EER and held-out real-pass were validated under.
     """
     model = registry.load(model_key)
     if model is None:
@@ -414,11 +387,10 @@ def _detect_ssl_tensor(wav, model_key: str) -> tuple[str, float, int]:
             detail=f"Model '{model_key}' checkpoint not found. Set {model_key.upper()}_PATH.",
         )
     _guard_audio_quality(wav)
-    probs = _ssl_window_fake_probs(model, wav, model_key)
-    fake_prob = sum(probs) / len(probs)
+    fake_prob = _ssl_fake_prob(model, wav, model_key)
     label = "fake" if fake_prob >= 0.5 else "real"
     confidence = fake_prob if label == "fake" else 1.0 - fake_prob
-    return label, round(confidence, 4), len(probs)
+    return label, round(confidence, 4), 1
 
 
 def _detect_ssl(path: str, model_key: str) -> tuple[str, float, int]:
@@ -871,9 +843,21 @@ async def websocket_stream(websocket: WebSocket, token: str = ""):
         await websocket.close(code=1013)  # try again later — all slots busy
         return
 
+    import asyncio
+
     buffer = bytearray()
     window_id = 0
-    WINDOW_BYTES = 16000 * 2 * 3  # 3 seconds of int16 @ 16kHz
+    BYTES_PER_S = 16000 * 2  # int16 @ 16kHz
+    FIRST_SCORE_S = 3.0
+    SCORE_STRIDE_S = 2.0
+    # The detector is only reliable on audio scored from the recording's natural
+    # start (see _ssl_fake_prob) — a mic stream's natural start is the moment the
+    # user hit Start. So each verdict re-scores the growing prefix of the session,
+    # capped at VG_WS_SCORE_SECONDS of audio (CPU cost grows with prefix length);
+    # past the cap the verdict is final and is simply re-emitted.
+    score_cap_bytes = int(float(os.environ.get("VG_WS_SCORE_SECONDS", "15")) * BYTES_PER_S)
+    next_score_at = int(FIRST_SCORE_S * BYTES_PER_S)
+    last_verdict: tuple[str, float, str] | None = None
     started = time.monotonic()
     received = 0
 
@@ -889,14 +873,15 @@ async def websocket_stream(websocket: WebSocket, token: str = ""):
             if received > _WS_BURST_BYTES + elapsed * _WS_PCM_BYTES_PER_S * _WS_RATE_SLACK:
                 await websocket.close(code=1008)  # faster than any real microphone
                 return
-            buffer.extend(data)
-            while len(buffer) >= WINDOW_BYTES:
-                window = bytes(buffer[:WINDOW_BYTES])
-                buffer = buffer[WINDOW_BYTES // 3 :]  # 1-second hop
-
-                audio = np.frombuffer(window, dtype=np.int16).astype(np.float32) / 32768.0
-
-                label, confidence, used_model = _detect_ssl_array(audio, 16000)
+            if len(buffer) < score_cap_bytes:
+                buffer.extend(data)
+            while received >= next_score_at:
+                if last_verdict is None or next_score_at <= score_cap_bytes:
+                    prefix = bytes(buffer[: min(next_score_at, score_cap_bytes)])
+                    audio = np.frombuffer(prefix, dtype=np.int16).astype(np.float32) / 32768.0
+                    # to_thread: model inference must not block WS keepalives
+                    last_verdict = await asyncio.to_thread(_detect_ssl_array, audio, 16000)
+                label, confidence, used_model = last_verdict
 
                 event = StreamDetectionEvent(
                     timestamp_ms=time.time() * 1000,
@@ -907,6 +892,7 @@ async def websocket_stream(websocket: WebSocket, token: str = ""):
                 )
                 await websocket.send_json(event.model_dump())
                 window_id += 1
+                next_score_at += int(SCORE_STRIDE_S * BYTES_PER_S)
 
     except WebSocketDisconnect:
         pass
@@ -1119,13 +1105,9 @@ def _detect_ssl_array(
     wav = torch.as_tensor(np.asarray(audio, dtype=np.float32)).reshape(1, -1)
     if sr != 16000:
         wav = torchaudio.functional.resample(wav, sr, 16000)
-    target_len = 48000
-    if wav.shape[-1] < target_len:
-        wav = torch.nn.functional.pad(wav, (0, target_len - wav.shape[-1]))
-    else:
-        wav = wav[..., :target_len]
-    with torch.no_grad():
-        probs = torch.softmax(model(wav), dim=-1)[0]  # SSL models take (B, T)
-    fake_prob = float(probs[1])
+    # Score the audio as given, from its start (padded up to the 3s minimum,
+    # capped at VG_SCORE_SECONDS) — see _ssl_fake_prob for why no windowing.
+    fake_prob = _ssl_fake_prob(model, wav, model_key)
     label = "fake" if fake_prob >= 0.5 else "real"
-    return label, round(fake_prob if label == "fake" else float(probs[0]), 4), model_key
+    confidence = fake_prob if label == "fake" else 1.0 - fake_prob
+    return label, round(confidence, 4), model_key

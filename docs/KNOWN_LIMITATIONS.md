@@ -1,11 +1,38 @@
 # Known Limitations & Detection-vs-Cloning Status
 
-_Last updated 2026-06-10._
+_Last updated 2026-06-11._
 
 > **Current deployed model: v9c** — official ASVspoof 2021 LA eval EER
 > **2.84% [95% CI 2.67–3.02]**, catches all clone families + ElevenLabs ~96%.
 > v9c supersedes the v3/v6/v7 references below (kept as the historical record).
 > Authoritative metrics: [`RESULTS_canonical.md`](RESULTS_canonical.md).
+
+## ⚠️ The detector only judges a recording from its natural start (2026-06-11)
+
+Measured on the held-out set: v9c is reliable **only when scoring a clip exactly
+as recorded, from its first sample**. Three serving strategies that look
+reasonable all fail:
+
+| Strategy | Held-out result |
+|---|---|
+| **Whole clip, one pass (from start)** | ✅ 16/16 correct (reals 0.02–0.04, fakes 0.89–0.99), stable from 6 s to 60 s |
+| 3 s sliding windows (max or mean) | ❌ mid-utterance windows of *real* speech score 0.9+ fake → real clips flagged fake |
+| Pause-aligned utterance chunks (silence trimmed) | ❌ trimming the ambient lead-in flips real speech to 0.99 fake |
+
+Root cause: real recordings open with ambient lead-in / natural onset, while TTS
+output starts mid-speech — the model partly keys on this. Consequences:
+
+- **`/detect` scores one full-clip pass** (capped at `VG_SCORE_SECONDS`, default
+  60 s); streams (`/ws/stream`, Twilio) score the **growing prefix from the
+  session start** (capped at `VG_WS_SCORE_SECONDS`, default 15 s), after which
+  the verdict is final. A fake segment spliced into the middle/tail of a long
+  real recording is therefore **out of scope** — the model cannot localise it.
+- **Adversarial evasion (measured, disclosed):** prepending ~0.5 s of silence to
+  a TTS clip shifts some fakes toward "real" (worst held-out case: IndexTTS-2
+  0.99 → 0.03). An attacker who records a clone with a quiet lead-in weakens
+  detection. Fixing this needs onset-augmented training (random leading-silence
+  augmentation), not a serving change — future work, alongside the PGD gap in
+  [`ADVERSARIAL_ROBUSTNESS.md`](ADVERSARIAL_ROBUSTNESS.md).
 
 ## ✅ 2026-06-09 session — limitations closed
 - **Official ASVspoof 2.61% reproduced** from raw FLAC (see the resolved section

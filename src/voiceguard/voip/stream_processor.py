@@ -20,10 +20,14 @@ def _resample_linear(audio: np.ndarray, input_sr: int, target_sr: int) -> np.nda
 
 
 class StreamProcessor:
-    """Stateful rolling buffer for streaming audio deepfake detection.
+    """Stateful growing-prefix buffer for streaming audio deepfake detection.
 
-    Audio chunks are pushed in at *input_sr* Hz, resampled to *target_sr* Hz,
-    and analysed in *window_s*-second windows with *hop_s*-second steps.
+    Audio chunks are pushed in at *input_sr* Hz and resampled to *target_sr* Hz.
+    The detector is only reliable on audio scored from the recording's natural
+    start (mid-utterance windows read as synthetic regardless of content), so
+    each verdict re-scores the growing prefix of the call — first at *window_s*
+    seconds, then every *hop_s* seconds, capped at *score_cap_s* seconds of
+    audio, after which the verdict is final and is re-emitted.
     """
 
     def __init__(
@@ -31,38 +35,47 @@ class StreamProcessor:
         input_sr: int = 8000,
         target_sr: int = 16000,
         window_s: float = 3.0,
-        hop_s: float = 1.0,
+        hop_s: float = 2.0,
+        score_cap_s: float = 15.0,
     ) -> None:
         self.input_sr = input_sr
         self.target_sr = target_sr
         self._window_samples = int(target_sr * window_s)
         self._hop_samples = int(target_sr * hop_s)
+        self._cap_samples = int(target_sr * score_cap_s)
         self._buffer: np.ndarray = np.array([], dtype=np.float32)
+        self._received = 0
+        self._next_score_at = self._window_samples
+        self._last: tuple[str, float, str] | None = None
         self._window_id = 0
 
     def push(self, audio: np.ndarray) -> dict | None:
-        """Push a chunk of audio; return detection result dict if a window is ready."""
+        """Push a chunk of audio; return a detection result dict when one is due."""
         resampled = _resample_linear(audio.astype(np.float32), self.input_sr, self.target_sr)
-        self._buffer = np.concatenate([self._buffer, resampled])
+        self._received += len(resampled)
+        if len(self._buffer) < self._cap_samples:
+            self._buffer = np.concatenate([self._buffer, resampled])[: self._cap_samples]
 
-        if len(self._buffer) >= self._window_samples:
-            window = self._buffer[: self._window_samples]
-            self._buffer = self._buffer[self._hop_samples :]
-            label, confidence, model = self._run_detection(window)
-            result = {
-                "window_id": self._window_id,
-                "label": label,
-                "confidence": round(float(confidence), 4),
-                "model": model,
-            }
-            self._window_id += 1
-            return result
-        return None
+        if self._received < self._next_score_at:
+            return None
+        if self._last is None or self._next_score_at <= self._cap_samples:
+            prefix = self._buffer[: min(self._next_score_at, self._cap_samples)]
+            self._last = self._run_detection(prefix)
+        label, confidence, model = self._last
+        result = {
+            "window_id": self._window_id,
+            "label": label,
+            "confidence": round(float(confidence), 4),
+            "model": model,
+        }
+        self._window_id += 1
+        self._next_score_at += self._hop_samples
+        return result
 
     def _run_detection(self, audio: np.ndarray) -> tuple[str, float, str]:
-        """Score the window, returning (label, confidence, model). `model` names which
-        detector actually scored it ("xls_r_aasist" | "classical" | "stub") so callers
-        know what produced the verdict and fallbacks are visible in logs."""
+        """Score the call prefix, returning (label, confidence, model). `model` names
+        which detector actually scored it ("xls_r_aasist" | "classical" | "stub") so
+        callers know what produced the verdict and fallbacks are visible in logs."""
         # Preferred: SSL production detector (same model as /detect and /ws/stream).
         try:
             import torch
@@ -97,6 +110,9 @@ class StreamProcessor:
             return "real", 0.5, "stub"
 
     def reset(self) -> None:
-        """Clear the buffer (call when a new call starts)."""
+        """Clear all state (call when a new call starts)."""
         self._buffer = np.array([], dtype=np.float32)
+        self._received = 0
+        self._next_score_at = self._window_samples
+        self._last = None
         self._window_id = 0

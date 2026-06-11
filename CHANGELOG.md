@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Real voices no longer flagged fake on long clips / Live streaming.**
+  Sliding-window scoring (max, then mean aggregation) misclassified genuine
+  recordings: mid-utterance 3 s windows are out-of-distribution for the SSL
+  detector and read as synthetic regardless of content (held-out reals scored
+  0.9+ fake from window 2 onward). `/detect` now scores **one full-clip pass
+  from the recording's natural start** (capped at `VG_SCORE_SECONDS`, default
+  60 s) — 16/16 held-out clips correct — and `/ws/stream` + the Twilio bridge
+  re-score the **growing prefix from session start** (first verdict at 3 s,
+  then every 2 s, capped at `VG_WS_SCORE_SECONDS`, default 15 s). Stream
+  inference moved off the event loop (`asyncio.to_thread`). Documented, with
+  the measured silence-prepend evasion this analysis surfaced, in
+  `docs/KNOWN_LIMITATIONS.md`.
+
 ### Added
 - **Live-mic streaming UI.** New **Live** tab streams the microphone over
   `/ws/stream` (AudioWorklet → 16 kHz int16 PCM) and renders a rolling
