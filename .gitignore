@@ -12,7 +12,12 @@ scripts/doctor.sh
 *.voiceguard-env
 .voiceguard-env
 
-# Model weights and binary artifacts
+# Model weights and binary artifacts. The checkpoint dirs are ignored wholesale:
+# the *.pt rules below miss the configs/tokenizers/hf_cache that ride along, and
+# docker-compose now mounts ./checkpoints — nothing under them belongs in git.
+checkpoints/
+models/
+
 *.pt
 *.pth
 *.onnx

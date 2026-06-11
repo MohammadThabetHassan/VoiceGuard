@@ -9,9 +9,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml ./
 COPY src/ ./src/
 
+# CPU torch wheels via --extra-index-url in the SAME resolve (mirrors CI):
+# installing from PyPI first would pull the ~2.5 GB CUDA torch and then
+# downgrade, and a pinned torch 2.1.x predates NumPy 2.x ABI support — it
+# crashes on import against this project's numpy>=2.4.6.
 RUN pip install --no-cache-dir -e . \
-    && pip install --no-cache-dir \
-        torch==2.1.2 torchaudio==2.1.2 --index-url https://download.pytorch.org/whl/cpu
+    --extra-index-url https://download.pytorch.org/whl/cpu
 
 EXPOSE 8000
 

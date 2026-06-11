@@ -11,8 +11,23 @@ services:
       - SECRET_KEY=${SECRET_KEY:-dev-secret-changeme-in-production}
       - VG_ENV=${VG_ENV:-development}
       - PDPL_MAX_AGE_SECONDS=${PDPL_MAX_AGE_SECONDS:-60}
+      # Point at a checkpoint inside the mounted ./checkpoints volume to serve
+      # the real model; unset, the API falls back to ?model=classical only.
+      - XLS_R_AASIST_PATH=${XLS_R_AASIST_PATH:-}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+    volumes:
+      # Model checkpoints (~1.2 GB for xls_r_aasist, not in git). Auto-discovery
+      # scans checkpoints/<model>/**/model_best.pt, or set XLS_R_AASIST_PATH above.
+      - ./checkpoints:/app/checkpoints:ro
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # python stdlib, not curl — python:3.12-slim doesn't ship curl
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
