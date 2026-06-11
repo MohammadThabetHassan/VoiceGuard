@@ -77,7 +77,7 @@ def export_fp32(model: torch.nn.Module, out_path: Path) -> Path:
 
 def quantize_int8(fp32_path: Path, out_path: Path) -> Path:
     try:
-        from onnxruntime.quantization import quantize_dynamic, QuantType
+        from onnxruntime.quantization import QuantType, quantize_dynamic
     except ImportError:
         print("onnxruntime-tools not installed — skipping INT8 quantization")
         return fp32_path
@@ -88,7 +88,8 @@ def quantize_int8(fp32_path: Path, out_path: Path) -> Path:
         weight_type=QuantType.QInt8,
     )
     size_mb = out_path.stat().st_size / 1e6
-    print(f"INT8 ONNX: {out_path}  ({size_mb:.2f} MB)  target=<2MB {'✓' if out_path.stat().st_size < TARGET_BYTES else '✗'}")
+    ok = "✓" if out_path.stat().st_size < TARGET_BYTES else "✗"
+    print(f"INT8 ONNX: {out_path}  ({size_mb:.2f} MB)  target=<2MB {ok}")
     return out_path
 
 
@@ -117,7 +118,6 @@ def benchmark(onnx_path: Path, n_runs: int = 50) -> dict:
     feed = {"waveform": dummy_wav}
     if "spectrogram" in input_names:
         feed["spectrogram"] = dummy_spec
-    dummy = dummy_wav  # kept for unused-var silence
 
     # Warmup
     for _ in range(5):
@@ -131,7 +131,11 @@ def benchmark(onnx_path: Path, n_runs: int = 50) -> dict:
 
     p50 = float(np.percentile(times, 50))
     p95 = float(np.percentile(times, 95))
-    print(f"Latency ({onnx_path.name}, CPU, n={n_runs}): p50={p50:.1f}ms  p95={p95:.1f}ms  target=<200ms {'✓' if p50 < 200 else '✗'}")
+    ok = "✓" if p50 < 200 else "✗"
+    print(
+        f"Latency ({onnx_path.name}, CPU, n={n_runs}): "
+        f"p50={p50:.1f}ms  p95={p95:.1f}ms  target=<200ms {ok}"
+    )
     return {"p50_ms": round(p50, 1), "p95_ms": round(p95, 1), "n_runs": n_runs}
 
 
@@ -155,7 +159,8 @@ def main():
     fp32_path = args.out_dir / "dsfnet_tiny_fp32.onnx"
     export_fp32(model, fp32_path)
 
-    results = {"fp32": {"path": str(fp32_path), "size_mb": round(fp32_path.stat().st_size / 1e6, 3)}}
+    fp32_mb = round(fp32_path.stat().st_size / 1e6, 3)
+    results = {"fp32": {"path": str(fp32_path), "size_mb": fp32_mb}}
 
     if not args.no_quantize:
         int8_path = args.out_dir / "dsfnet_tiny_int8.onnx"

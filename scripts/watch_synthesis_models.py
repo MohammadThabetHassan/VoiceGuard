@@ -17,10 +17,12 @@ import argparse
 import json
 import sys
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-CATALOG_PATH = Path(__file__).parent.parent / "src" / "voiceguard" / "models" / "known_synthesis_models.json"
+CATALOG_PATH = (
+    Path(__file__).parent.parent / "src/voiceguard/models/known_synthesis_models.json"
+)
 HF_API = "https://huggingface.co/api/models"
 FILTERS = ["text-to-speech", "voice-conversion", "audio-to-audio"]
 SORT = "lastModified"
@@ -61,7 +63,7 @@ def main() -> int:
             new_models.append({
                 "id": mid,
                 "type": tag,
-                "added": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                "added": datetime.now(UTC).strftime("%Y-%m-%d"),
                 "lastModified": m.get("lastModified", ""),
                 "downloads": m.get("downloads", 0),
             })

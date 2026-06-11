@@ -30,6 +30,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          # Cache pip downloads keyed on pyproject.toml — saves re-downloading
+          # the ~200MB CPU torch wheel on every run.
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install system deps
         run: sudo apt-get update && sudo apt-get install -y libsndfile1 ffmpeg
       - name: Install package
@@ -59,9 +63,41 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
       - name: Lint
         working-directory: frontend
         run: npm run lint
+      - name: Tests
+        working-directory: frontend
+        run: npm test
+      - name: Type-check + build
+        working-directory: frontend
+        run: npm run build
+
+  # Proves the shipped containers actually boot and serve: builds the backend
+  # image, starts it, and polls /health — the bug class unit tests can't catch.
+  docker-smoke:
+    name: Docker smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build backend image
+        run: docker build -t voiceguard-backend .
+      - name: Boot and probe /health
+        run: |
+          docker run -d --name vg -p 8000:8000 voiceguard-backend
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health; then
+              echo; echo "healthy after ${i}0s"; exit 0
+            fi
+            sleep 10
+          done
+          echo "backend never became healthy"; docker logs vg; exit 1
+      - name: Container healthcheck command works
+        # The same probe docker-compose's healthcheck runs — guards the
+        # python-urllib healthcheck against regressions (no curl in the image).
+        run: docker exec vg python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"
