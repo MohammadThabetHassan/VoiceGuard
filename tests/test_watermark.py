@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from voiceguard.watermark.c2pa_watermark import detect, embed
+from voiceguard.watermark.c2pa_watermark import (
+    MIN_INAUDIBLE_CARRIER_HZ,
+    _clamp_carrier,
+    detect,
+    embed,
+    ensure_carrier_sr,
+)
 
 SR = 22050
 
@@ -83,3 +89,29 @@ def test_carrier_clamped_at_nyquist():
     # carrier_hz > sr/2 should not crash, just clamp
     watermarked, wid = embed(audio, sr=SR, carrier_hz=SR * 10)
     assert watermarked.shape == audio.shape
+
+
+def test_ensure_carrier_sr_keeps_carrier_inaudible_on_24k():
+    """The Kokoro bug: 18kHz carrier on 24kHz audio clamps to ~11.9kHz (audible).
+    ensure_carrier_sr must lift the rate so the carrier stays >= 16kHz, and the
+    watermark must still be detectable after the resample."""
+    # Quiet signal reflecting real synthesized speech (Kokoro RMS ~0.05), where an
+    # inaudible 0.003 watermark is still recoverable.
+    rng = np.random.default_rng(0)
+    audio = (rng.uniform(-0.08, 0.08, 24000)).astype(np.float32)
+    # On 24kHz the carrier would be audible:
+    assert _clamp_carrier(18000.0, 24000) < MIN_INAUDIBLE_CARRIER_HZ
+    wm_audio, wm_sr = ensure_carrier_sr(audio, 24000)
+    assert wm_sr >= 36000
+    assert _clamp_carrier(18000.0, wm_sr) >= MIN_INAUDIBLE_CARRIER_HZ
+    marked, wid = embed(wm_audio, sr=wm_sr, amplitude=0.003)
+    detected, corr = detect(marked, sr=wm_sr, watermark_id=wid, threshold=0.01)
+    assert detected is True
+    assert corr > 0.0
+
+
+def test_ensure_carrier_sr_noop_when_rate_sufficient():
+    audio = make_audio(0.5, sr=48000)
+    out, sr = ensure_carrier_sr(audio, 48000)
+    assert sr == 48000
+    assert out.shape == audio.shape

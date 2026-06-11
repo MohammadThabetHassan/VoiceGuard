@@ -387,7 +387,7 @@ async def synthesize(
 
     from voiceguard.synthesis.registry import registry as synth_registry
     from voiceguard.watermark import c2pa_sign
-    from voiceguard.watermark.c2pa_watermark import embed
+    from voiceguard.watermark.c2pa_watermark import embed, ensure_carrier_sr
 
     eng = synth_registry.get(engine)
     if eng is None or not eng.is_available():
@@ -415,10 +415,14 @@ async def synthesize(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Synthesis failed: {exc}") from exc
 
-    watermarked, watermark_id = embed(np.asarray(audio, dtype=np.float32), sr=sr, amplitude=0.01)
+    # Resample up if needed so the 18 kHz watermark carrier stays inaudible
+    # (Kokoro's 24 kHz would otherwise clamp the carrier into the audible band),
+    # then embed at an inaudible amplitude (≤ the documented 0.005).
+    wm_audio, wm_sr = ensure_carrier_sr(np.asarray(audio, dtype=np.float32), sr)
+    watermarked, watermark_id = embed(wm_audio, sr=wm_sr, amplitude=0.003)
     fname = f"vg_{int(time.time() * 1000)}_{engine}.wav"
     out_path = MEDIA_DIR / fname
-    sf.write(str(out_path), watermarked, sr)
+    sf.write(str(out_path), watermarked, wm_sr)
 
     # Cryptographic C2PA provenance: sign the file with a real, signed manifest
     # marking it AI-generated (trainedAlgorithmicMedia) — on top of the spectral

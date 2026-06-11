@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from voiceguard.watermark.c2pa_watermark import embed
+from voiceguard.watermark.c2pa_watermark import embed, ensure_carrier_sr
 
 KOKORO_SR = 24000  # Kokoro native sample rate
 # American + British, female + male. af_heart is the default high-quality voice.
@@ -70,13 +70,15 @@ def synthesize_to_file(
     """
     audio, _sr = synthesize_raw(text, voice=voice, language=language, speed=speed)
 
-    # C2PA spectral watermark marking the clip as AI-generated. Amplitude is set
-    # high enough to stay reliably verifiable while remaining unobtrusive.
-    watermarked, watermark_id = embed(audio, sr=KOKORO_SR, amplitude=0.01)
+    # C2PA spectral watermark marking the clip as AI-generated. Resample up so the
+    # 18 kHz carrier stays inaudible (24 kHz would clamp it into the audible band),
+    # at an inaudible amplitude (≤ the documented 0.005).
+    wm_audio, wm_sr = ensure_carrier_sr(audio, KOKORO_SR)
+    watermarked, watermark_id = embed(wm_audio, sr=wm_sr, amplitude=0.003)
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     fname = f"vg_{uuid.uuid4().hex[:12]}.wav"
-    sf.write(str(out_dir / fname), watermarked, KOKORO_SR)
+    sf.write(str(out_dir / fname), watermarked, wm_sr)
     duration_ms = int(len(audio) / KOKORO_SR * 1000)
     return fname, watermark_id, duration_ms
