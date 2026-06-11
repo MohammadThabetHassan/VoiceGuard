@@ -1,17 +1,21 @@
 import { useState } from 'react'
 import DetectTab from './pages/DetectTab'
+import LiveTab from './pages/LiveTab'
 import GenerateTab from './pages/GenerateTab'
+import VerifyTab from './pages/VerifyTab'
 import ResultsTab from './pages/ResultsTab'
 import LoginControl from './components/LoginControl'
 
-type Tab = 'detect' | 'generate' | 'results'
+type Tab = 'detect' | 'live' | 'generate' | 'verify' | 'results'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('detect')
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'detect', label: 'Detect' },
+    { id: 'live', label: 'Live' },
     { id: 'generate', label: 'Generate' },
+    { id: 'verify', label: 'Verify' },
     { id: 'results', label: 'Results' },
   ]
 
@@ -59,7 +63,9 @@ export default function App() {
       <main className="flex-1 px-6 py-8">
         <div className="max-w-5xl mx-auto">
           {activeTab === 'detect' && <DetectTab />}
+          {activeTab === 'live' && <LiveTab />}
           {activeTab === 'generate' && <GenerateTab />}
+          {activeTab === 'verify' && <VerifyTab />}
           {activeTab === 'results' && <ResultsTab />}
         </div>
       </main>
