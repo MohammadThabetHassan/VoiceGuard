@@ -291,20 +291,37 @@ def _window_starts(total: int) -> list[int]:
     return starts
 
 
+_WINDOW_RMS_FLOOR = 0.01  # below this a window is silence/pause, not speech
+
+
 def _ssl_window_fake_probs(model, wav, model_key: str) -> list[float]:
-    """Score each 3s window of `wav` (1, T); return per-window fake-probabilities."""
+    """Score the speech-containing 3s windows of `wav` (1, T); return their
+    per-window fake-probabilities.
+
+    Near-silent windows (pauses/gaps) are skipped: the SSL detector collapses
+    silence/non-speech to a confident "fake", so scoring them would spuriously
+    drag a real recording toward fake. If every window is quiet, the single
+    loudest one is scored so we always return at least one probability.
+    """
     import torch
 
-    windows = []
+    windows, rms = [], []
     for s in _window_starts(wav.shape[-1]):
         w = wav[..., s : s + _WIN].squeeze(0)
         if w.shape[-1] < _WIN:
             w = torch.nn.functional.pad(w, (0, _WIN - w.shape[-1]))
         windows.append(w)
+        rms.append(float(w.pow(2).mean().sqrt()))
+
+    keep = [i for i, r in enumerate(rms) if r >= _WINDOW_RMS_FLOOR]
+    if not keep:  # whole clip is quiet — score the loudest window
+        keep = [int(np.argmax(rms))]
+    kept = [windows[i] for i in keep]
+
     probs: list[float] = []
     with torch.no_grad():
-        for i in range(0, len(windows), 8):  # batch to bound memory
-            batch = torch.stack(windows[i : i + 8])  # (B, T)
+        for i in range(0, len(kept), 8):  # batch to bound memory
+            batch = torch.stack(kept[i : i + 8])  # (B, T)
             inp = batch if model_key in _SSL_KEYS else batch.unsqueeze(1)  # (B,T) / (B,1,T)
             p = torch.softmax(model(inp), dim=-1)[:, 1]
             probs.extend(p.cpu().tolist())
@@ -314,7 +331,11 @@ def _ssl_window_fake_probs(model, wav, model_key: str) -> list[float]:
 def _detect_ssl_tensor(wav, model_key: str) -> tuple[str, float, int]:
     """Sliding-window SSL detection over the full clip. Returns (label, conf, n_windows).
 
-    ``fake_prob = max`` over windows, so a fake anywhere in a long clip is caught.
+    ``fake_prob`` is the **mean** over the speech windows. A few noisy or paused
+    windows in an otherwise-real recording therefore can't flip the whole verdict
+    to fake (an earlier ``max`` aggregation over-flagged real-world mic/phone
+    audio), while a genuinely synthetic clip — whose windows are consistently
+    fake — still scores well above 0.5.
     """
     model = registry.load(model_key)
     if model is None:
@@ -324,7 +345,7 @@ def _detect_ssl_tensor(wav, model_key: str) -> tuple[str, float, int]:
         )
     _guard_audio_quality(wav)
     probs = _ssl_window_fake_probs(model, wav, model_key)
-    fake_prob = max(probs)
+    fake_prob = sum(probs) / len(probs)
     label = "fake" if fake_prob >= 0.5 else "real"
     confidence = fake_prob if label == "fake" else 1.0 - fake_prob
     return label, round(confidence, 4), len(probs)
@@ -404,11 +425,12 @@ async def detect(
     """Upload an audio file and receive a deepfake detection result.
 
     Accepted formats: WAV, MP3, FLAC (max 100MB). Clips longer than 3s are scored
-    with a sliding 3s window (1.5s hop); the verdict uses the maximum per-window
-    fake probability, so a fake anywhere in a long clip is caught
-    (`windows_analyzed` reports the window count). Raw audio is auto-deleted after
-    60 seconds (PDPL compliance). Pass `explain=true` to include Integrated
-    Gradients attribution showing which time segments drove the decision.
+    with a sliding 3s window (1.5s hop) over the speech segments; the verdict is
+    the mean per-window fake probability, so a few noisy/paused windows don't flip
+    a real recording to fake (`windows_analyzed` reports the speech-window count).
+    Raw audio is auto-deleted after 60 seconds (PDPL compliance). Pass
+    `explain=true` to include Integrated Gradients attribution showing which time
+    segments drove the decision.
     """
     path, audio_hash = await save_upload(file)
     background_tasks.add_task(pdpl_auto_delete, path)
