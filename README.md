@@ -14,7 +14,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![IEEE SM2026](https://img.shields.io/badge/IEEE-SM2026-00629B.svg)](#-results)
+[![IEEE SM2026](https://img.shields.io/badge/IEEE-SM2026-00629B.svg)](#-citation)
 
 <a href="#-quick-start">Quick start</a> ·
 <a href="#-results">Results</a> ·
@@ -43,8 +43,9 @@ classical baseline was accepted at **IEEE SM2026**.
 
 - 🛡️ **Detection** — production **XLS-R-300M + AASIST** model (official ASVspoof 2021 LA eval EER **2.84%**, v9c) that *also* catches modern voice clones and premium TTS, with DSFNet, Wav2Vec2/WavLM, and a classical XGBoost baseline all selectable. An input-quality guard rejects silent / too-short clips instead of guessing.
 - 🌍 **Real-world robustness** — hardened against out-of-distribution TTS (Kokoro **93.3%**, IndexTTS2 **100%**) and noisy / telephony / short audio.
+- 🎙️ **Live microphone streaming** — the web app's **Live tab** streams your mic over WebSocket and shows a rolling real/fake verdict every second (3s analysis window).
 - 🔍 **Explainability** — Integrated-Gradients attribution shows *which moments* drove the verdict.
-- 🗣️ **Synthesis + watermarking** — multi-engine Generate: local **Kokoro-82M** preset voices and optional **zero-shot voice cloning** (XTTS v2 / IndexTTS-2) from a reference clip; every clip is spectrally watermarked as AI-generated and can be tested back through the detector. See [docs/SYNTHESIS_ENGINES.md](docs/SYNTHESIS_ENGINES.md).
+- 🗣️ **Synthesis + watermarking** — multi-engine Generate: local **Kokoro-82M** preset voices and optional **zero-shot voice cloning** (XTTS v2 / IndexTTS-2, admin-only) from a reference clip; every clip is spectrally watermarked as AI-generated and C2PA-signed. The **Verify tab** (`POST /watermark/verify`) closes the loop: prove any clip's provenance back. See [docs/SYNTHESIS_ENGINES.md](docs/SYNTHESIS_ENGINES.md).
 - 🧾 **Forensics** — SHA-256 chain-of-custody and NIST SP 800-86 PDF reports.
 - ☎️ **VoIP** — Twilio Media Streams bridge for live call screening.
 - ⚡ **Edge-ready** — ONNX INT8 export at **0.62 MB**, **~30 ms** CPU inference.
@@ -65,30 +66,34 @@ End-to-end on the live deployment: log in → upload a **premium ElevenLabs clip
 
 ## 📊 Results
 
-Evaluated on the **official** ASVspoof 2021 LA set (181,566 trials). The deployed model
-is **v9c at 2.84% EER** — it catches modern clones and premium TTS as well as scoring low
-on the official protocol. The earlier **2.61%** Kokoro-parent (clone-blind, EER-only) was
-**reproduced exactly from raw FLAC on 2026-06-09** (`run_official_eval.py`).
+**The deployed detector — XLS-R-300M + AASIST "v9c" — scores 2.84% EER on the official
+ASVspoof 2021 LA eval (181,566 trials)**, and unlike EER-only checkpoints it *also*
+catches what 2026 attackers actually use (speaker/text-disjoint held-out, 100/family):
+real-pass **96%** · Kokoro **100%** · XTTS **100%** · IndexTTS-2 **97%** ·
+**ElevenLabs-v3 (unseen) 95.8%**.
+
+**Edge:** DSFNetTiny INT8 **0.62 MB**, CPU p50 **30 ms**, trained weights (8.47% EER).
+**Provenance:** synthesized audio carries a real *signed C2PA manifest* + spectral watermark.
+
+<details>
+<summary><b>Model lineage — why you may spot other EERs (2.61 / 2.49 / 3.38) in this repo</b></summary>
 
 | Model | EER (eval) | EER (full-pool) | Catches clones | Catches premium TTS | Role |
 |-------|:----------:|:---------------:|:--------------:|:-------------------:|------|
-| **XLS-R + AASIST — v9c** | **2.84%** | 8.21% | ✓ all ≥97% | ✓ ElevenLabs 96% | 🏆 **best (validated)** |
-| XLS-R + AASIST — v7 | 3.38% | 8.60% | ✓ all ≥96.7% | ✗ (85%) | current production |
+| **XLS-R + AASIST — v9c** | **2.84%** | 8.21% | ✓ all ≥97% | ✓ ElevenLabs 96% | 🏆 **deployed** |
+| XLS-R + AASIST — v7 | 3.38% | 8.60% | ✓ all ≥96.7% | ✗ (85%) | previous production |
 | XLS-R + AASIST (Kokoro-parent) | 2.61% | 8.21% | ✗ | ✗ | EER-only headline |
 | XLS-R + AASIST — v8 | 2.49% | 9.91% | ✗ (Kokoro 62.5%) | — | lowest official EER |
 | Wav2Vec2-large | 3.09% | 7.07% | — | — | baseline |
 
-**v9c — best of every axis** (speaker/text-disjoint held-out, 100/family): official eval
-EER **2.84%** · real-pass **96%** · Kokoro **100%** · XTTS **100%** · IndexTTS-2 **97%** ·
-**ElevenLabs-v3 (unseen) 95.8%**. It supersedes v7 — same robustness, lower EER, and it
-*also* catches premium commercial TTS.
-**Edge:** DSFNetTiny INT8 **0.62 MB**, CPU p50 **30 ms**, trained weights (8.47% EER).
-**Provenance:** synthesized audio carries a real *signed C2PA manifest* + spectral watermark.
+**On the "2.61%".** That figure is the **Kokoro-parent** checkpoint on the official
+eval — **reproduced exactly from raw FLAC on 2026-06-09** (`run_official_eval.py`) — but
+it does *not* catch modern clones. The deployed lineage (v7 → v9c) is measured on the
+same official protocol: **v7 = 3.38%**, **v9c = 2.84%**. v9c recovers most of the EER
+gap *and* catches clones + premium TTS, so it's the best model overall. A lower official
+EER (v8's 2.49%) was *rejected* for deployment because it is clone-blind.
 
-> **On the "2.61%".** That figure is the **Kokoro-parent** checkpoint on the official
-> eval — it does *not* catch modern clones. The deployed lineage (v7 → v9c) is measured
-> on the same official protocol: **v7 = 3.38%**, **v9c = 2.84%**. v9c recovers most of the
-> EER gap *and* catches clones + premium TTS, so it's the best model overall.
+</details>
 
 > **🔬 Reproducible & honestly bounded.** Every EER carries a 95% bootstrap CI, on a
 > single provenance-tagged table, with same-protocol baselines and a fixed env manifest —
@@ -149,8 +154,11 @@ cd frontend && npm ci && npm run dev
 
 The production detector (`xls_r_aasist`) needs a ~1.2 GB checkpoint (not in git);
 without it, set `model=classical` or point `XLS_R_AASIST_PATH` at the checkpoint.
-Self-hosted deployment (Nginx + systemd) is scripted in [`deploy/`](deploy/);
-Docker Compose is also provided.
+Self-hosted deployment (Nginx + systemd) is scripted in [`deploy/`](deploy/).
+Docker Compose is also provided: `docker compose up --build` serves everything on
+`http://localhost`, mounts `./checkpoints` into the backend (drop the checkpoint at
+`checkpoints/xls_r_aasist/model_best.pt` or export `XLS_R_AASIST_PATH`), and falls
+back to the classical baseline when no checkpoint is present.
 
 ### Three ways to run it
 
@@ -164,13 +172,18 @@ Docker Compose is also provided.
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|:----:|
-| `POST` | `/token` | OAuth2 password → JWT | — |
+| `POST` | `/token` | OAuth2 password → JWT (carries a `role` claim) | — |
 | `POST` | `/detect` | Audio → verdict (`?model=`, `?explain=true`) | 🔑 |
 | `POST` | `/explain` | Integrated-Gradients attribution | 🔑 |
-| `POST` | `/synthesize` | Text → watermarked Kokoro speech | 🔑 |
-| `POST` | `/forensic/report` | NIST SP 800-86 PDF report | 🔑 |
-| `WS` | `/ws/stream` · `/twilio/stream` | Live mic / Twilio call screening | 🔑 |
+| `POST` | `/synthesize` | Text → watermarked speech (voice *cloning* is admin-only + quota'd) | 🔑 |
+| `POST` | `/watermark/verify` | Provenance check: spectral watermark + C2PA manifest | 🔑 |
+| `POST` | `/forensic/report` | NIST SP 800-86 PDF report (audio metadata, model + checkpoint hash) | 🔑 |
+| `WS` | `/ws/stream` | Live-mic streaming (JWT as first WS message; capped slots) | 🔑 |
+| `WS` | `/twilio/stream` | Twilio call screening (`X-Twilio-Signature` when `TWILIO_AUTH_TOKEN` set) | ✍️ |
 | `GET` | `/models` · `/health` · `/docs` | Ops & Swagger | — |
+
+🔑 JWT bearer · ✍️ Twilio request signature (open in development; refused in
+production unless `TWILIO_AUTH_TOKEN` is configured)
 
 ## 🛠️ Tech stack
 
@@ -211,6 +224,10 @@ would not have been possible without his mentorship — thank you, Dr. Arash.
 
 ## 📚 Citation
 
+The **IEEE SM2026 acceptance covers the GP1 classical-baseline paper** (feature-based
+detection, F1 = 0.95) — not the full platform or the XLS-R+AASIST results in this
+repository, which post-date the submission. If you cite the accepted work:
+
 ```bibtex
 @inproceedings{voiceguard2026,
   title     = {VoiceGuard: Real-Time Voice Deepfake Detection and Adversarial
@@ -218,7 +235,9 @@ would not have been possible without his mentorship — thank you, Dr. Arash.
   author    = {Hassan, Mohammad Thabet and Al-Jazzeri, Fahad Sadek and Alameri, Ahmed Sami},
   booktitle = {Proceedings of IEEE SM2026},
   year      = {2026},
-  organization = {Canadian University Dubai}
+  organization = {Canadian University Dubai},
+  note      = {Accepted paper covers the classical baseline; the deployed
+               XLS-R+AASIST detector is described in this repository}
 }
 ```
 

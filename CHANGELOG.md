@@ -8,6 +8,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Live-mic streaming UI.** New **Live** tab streams the microphone over
+  `/ws/stream` (AudioWorklet → 16 kHz int16 PCM) and renders a rolling
+  real/fake verdict + window timeline — the "real-time" in the project name is
+  now demonstrable in the browser.
+- **`POST /watermark/verify` + Verify tab.** The read side of synthesis:
+  checks the keyed spectral watermark (given a `watermark_id`) and the embedded
+  C2PA manifest, closing the Generate → Verify provenance loop.
+- **Roles.** JWTs carry a `role` claim; voice *cloning* is admin-only with a
+  per-user hourly quota (`VG_CLONE_QUOTA_PER_HOUR`). Preset TTS stays open to
+  analysts.
+- **Forensic PDF upgrades:** evidence characteristics (duration, sample rate,
+  channels, codec, windows analyzed) and analysis-tool identity (model key,
+  app version, checkpoint SHA-256) — captured at detect time, before PDPL
+  erasure.
+- **Frontend test suite** (vitest + Testing Library, 16 tests) and a CI
+  **Docker smoke test** that builds the backend image and probes `/health`.
+
+### Security
+- `/twilio/stream` validates `X-Twilio-Signature` when `TWILIO_AUTH_TOKEN` is
+  set and refuses unauthenticated production use.
+- `/ws/stream` takes the JWT as the first WS message (query-string tokens
+  deprecated — they leak into proxy logs); WebSockets gained a global
+  concurrent-connection budget, session-duration cap, and ingest-rate cap.
+- Uploads are magic-byte sniffed before libsndfile parses them, and `/detect`
+  enforces a duration cap (`VG_MAX_AUDIO_SECONDS`) instead of timing out.
+- Generated media/report filenames switched from timestamps to uuid4
+  (the unauthenticated `/media` mount was enumerable).
+- nginx configs: per-location header inheritance fixed, CSP added, deprecated
+  `X-XSS-Protection` dropped.
+
+### Fixed
+- Docker stack actually boots: healthcheck no longer needs curl (absent from
+  the slim image), CPU torch resolves in one pass (the old `torch==2.1.2` pin
+  crashed against numpy≥2.4), the frontend image builds from the lockfile
+  (`npm ci`), compose mounts `./checkpoints`, and production nginx routes
+  `/twilio/`.
+
+### Removed
+- Unused runtime dependencies `webrtcvad`, `datasets`, `matplotlib` (install
+  time + image size).
 - **Official ASVspoof 2021 LA EER reproduced (2.61%).** Re-downloaded the official
   eval (Zenodo + asvspoof.org keys) to durable disk and reproduced the headline
   **2.61%** eval-phase EER exactly from raw FLAC via `run_official_eval.py`. Scored
