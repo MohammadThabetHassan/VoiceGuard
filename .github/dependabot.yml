@@ -14,6 +14,11 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "build"
+    ignore:
+      # v1.x ships on the pinned React 18 / Vite 5 / ESLint 9 stack;
+      # majors need a coordinated upgrade (and Node >= 20 for Vite 8+).
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
