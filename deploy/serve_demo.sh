@@ -35,8 +35,11 @@ log "watchdog started (ckpt=$CKPT)"
 while true; do
   if ! curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
     log "API down -> starting combined server (deploy/vg_serve.py)"
+    # --proxy-headers + --forwarded-allow-ips "*": the tunnel hits us on 127.0.0.1,
+    # so trust X-Forwarded-For to rate-limit per real client IP (not all as one).
     setsid python3 -m uvicorn vg_serve:root --app-dir "$REPO/deploy" \
-      --host 127.0.0.1 --port 8000 --workers 1 --log-level warning >> "$LOG" 2>&1 &
+      --host 127.0.0.1 --port 8000 --workers 1 --log-level warning \
+      --proxy-headers --forwarded-allow-ips '*' >> "$LOG" 2>&1 &
     sleep 20
   fi
   if ! pgrep -f "ngrok http" >/dev/null 2>&1; then
