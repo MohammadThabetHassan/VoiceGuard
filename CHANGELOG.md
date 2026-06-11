@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   painting frozen verdicts as fresh per-second analysis.
 
 ### Fixed
+- **Live tab could never connect on the demo deployment.** The frontend opened
+  the WebSocket at the root path (`wss://host/ws/stream`), which only existed
+  behind nginx's extra `/ws/` location — the demo server (vg_serve) mounts the
+  API solely under `/api`, so the upgrade landed in the static-files mount and
+  every Live session failed with "Could not reach the live-analysis stream".
+  The stream now connects same-origin under the API base
+  (`wss://host/api/ws/stream`); both nginx configs gained an `/api/ws/` upgrade
+  location (the legacy `/ws/` route is kept), and the Vite dev proxy upgrades
+  WebSockets through its `/api` entry.
 - **Review follow-ups on the single-pass detection change:** the Twilio bridge
   now runs inference off the event loop (`asyncio.to_thread`, same as
   `/ws/stream`) and honors `VG_WS_SCORE_SECONDS` (was a hardcoded 15s); the

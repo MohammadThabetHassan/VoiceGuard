@@ -35,6 +35,15 @@ output starts mid-speech — the model partly keys on this. Consequences:
   detection. Fixing this needs onset-augmented training (random leading-silence
   augmentation), not a serving change — future work, alongside the PGD gap in
   [`ADVERSARIAL_ROBUSTNESS.md`](ADVERSARIAL_ROBUSTNESS.md).
+- **Format conversion is safe; converter "cleanup" is not (measured 2026-06-11).**
+  Re-encoding the 20-clip held-out set WAV → OGG-Vorbis and WAV → MP3 (libsndfile
+  *and* ffmpeg 128k) produced **0/20 verdict flips** — lossy codecs alone do not
+  change the verdict. But converters that also **trim leading silence** (a common
+  default in online converters) hit the natural-start sensitivity above: the same
+  real clip scored 0.03 as original, 0.04 after loudness-normalization, and
+  **0.99 "fake" after a silence-trimmed MP3 export**. If two encodings of one
+  recording disagree, suspect the converter edited the start of the audio, not
+  the codec.
 
 ## ✅ 2026-06-09 session — limitations closed
 - **Official ASVspoof 2.61% reproduced** from raw FLAC (see the resolved section

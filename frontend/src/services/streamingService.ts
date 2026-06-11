@@ -8,7 +8,7 @@
  * replies with StreamDetectionEvent JSON; the event with `final: true` covers
  * the full scoring cap and is the last one — later audio is not analyzed.
  */
-import { getWsUrl, getToken } from '../config/apiConfig'
+import { API_BASE, getWsUrl, getToken } from '../config/apiConfig'
 
 export type StreamEvent = {
   timestamp_ms: number
@@ -93,7 +93,11 @@ export class LiveMicStream {
     this.stopped = false
     this.handlers.onStatus('connecting')
 
-    const ws = new WebSocket(getWsUrl('/ws/stream'))
+    // Same-origin under the API base (e.g. wss://host/api/ws/stream) — the bare
+    // /ws/stream path only existed behind nginx's extra /ws/ location; the demo
+    // server (vg_serve) mounts the API solely under /api, so a root-path WS hit
+    // the static-files mount and the connection always failed.
+    const ws = new WebSocket(getWsUrl(`${API_BASE}/ws/stream`))
     this.ws = ws
     ws.binaryType = 'arraybuffer'
 
