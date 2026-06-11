@@ -46,22 +46,41 @@ if ALL hold; otherwise v9c stays and we stop (no v2/v3 spiral):**
 would therefore be *partly a data artifact* (− LibriSpeech), not purely the effect of
 adversarial training. This is a confounded delta, stated as such.
 
-### Result — IMPLEMENTED & PRE-REGISTERED; execution GPU-blocked (2026-06-11)
+### Result — RAN 2026-06-11; **FAILED the gate decisively. v9c stays deployed.**
 
-The runner (`voiceguard-checkpoints/column_b2_adv.py`) is complete: it loads v9c,
-unfreezes the top-6 of 24 XLS-R encoder layers + the AASIST head, builds an
-ASVspoof-bonafide real pool + clone fakes, and does clean+PGD adversarial training
-with the gate measured afterwards by `scripts/pgd_curve.py`,
-`scripts/clone_score_distributions.py`, and `scripts/eval_official.sh`.
+The run completed (`column_b2_adv.py`: v9c → top-6 XLS-R layers + AASIST head unfrozen,
+77.5M trainable params, clean+PGD mix, 4 epochs; train loss 1.01→0.41, adv-loss > clean
+throughout — training was healthy). Checkpoint: `runs/xlsr_aasist_b2_advbackbone`. The
+pre-registered gate, measured on the **held-out / official** sets:
 
-A smoke test validated the full code path **up to the backward pass** (data decode,
-model load, forward, FGSM/PGD forward all run). It then hit **CUDA OOM with only
-~80 MiB free** — the GPU is held at **30.6 / 31 GB by another user's process**
-(`ollama/llama-server`). Backbone adversarial training needs several GB of gradient
-memory, so the run **cannot proceed under this contention**.
+| gate criterion | threshold | **measured** | verdict |
+|----------------|-----------|--------------|:------:|
+| clean official-eval EER | ≤ 6% | **2.79%** eval / 8.06% full-pool (≈ v9c) | ✓ |
+| held-out real-pass (@ 0.5 thr) | ≥ 90% | **18%** (v9c: 96%) | ✗✗ |
+| clone detect (XTTS / IndexTTS-2) | ≥ 90% | 100% / 100% | ✓* |
+| PGD acc @ ε=0.002 | ≥ 30% | not demonstrably improved (confounded — see below) | ✗ |
 
-**Honest status:** this is an *execution* block (shared-GPU contention), not a code or
-design block. The experiment is pre-registered and ready; it runs as soon as the GPU
-frees. The expected outcome (per the head-only precedent + the disclosed gone-LibriSpeech
-confound) is a robustness/accuracy trade that likely **fails the deploy gate** — in which
-case v9c stays and that is the reported finding. No result is fabricated in the meantime.
+\* the clone "100%" is an artifact of the boundary shift below: when the model calls
+almost everything "fake", clones pass trivially while real callers get flagged.
+
+**What actually happened — calibration collapse, not loss of discrimination.** The model's
+*ranking* of real vs fake is preserved — official **EER 2.79% ≈ v9c's 2.84%**, and the EER
+gate passes. What broke is the **operating point at the deployed 0.5 threshold**: scores
+shifted so genuine audio reads as fake, crashing held-out **real-pass to 18%**. As a
+deployed detector (which thresholds at 0.5), it is therefore **unusable** despite the good
+EER. (The in-script test read clean 94% only because that split came from the *same*
+balanced-mirror training distribution; the held-out/official numbers are the real test.)
+
+> **Self-correction (rigor note):** an initial read of the 150-clip `pgd_curve` output
+> (clean-accuracy-at-0.5 = 0.50 on a balanced set) looked like "lost generalisation". The
+> full official EER (2.79%) **refuted that** — discrimination is intact; *calibration* is
+> the casualty. The PGD-curve clean/PGD numbers are confounded by this 0.5-threshold shift,
+> so no PGD improvement can be claimed. Corrected here rather than shipping the misread.
+
+**Decision (pre-registered):** real-pass gate failed → **NOT deployed; v9c remains
+production.** One shot, stopped — no v2/v3 spiral. Consistent with the documented
+conclusion: with only the balanced-mirror + clones on hand (LibriSpeech real-diversity pool
+gone), backbone adversarial training wrecks the real-pass operating point without buying
+demonstrable PGD robustness. A genuine fix needs the official ASVspoof train set + a broad
+real-speech pool (B.1's data prerequisite) — and likely score re-calibration — not another
+fine-tune of a robustness derivative. Honest negative result, recorded with its correction.
