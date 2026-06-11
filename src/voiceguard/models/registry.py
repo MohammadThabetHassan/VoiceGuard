@@ -8,17 +8,24 @@ is not set. The /detect endpoint and /health both use this registry.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 _CHECKPOINTS_ROOT = Path(os.environ.get("CHECKPOINTS_DIR", "checkpoints"))
 
 
-def _newest_pt(subdir: str) -> Path | None:
+def _newest_pt(subdir: str, ext: str = ".pt") -> Path | None:
+    """Newest model_best<ext> under checkpoints/<subdir>/ (ext-aware: the classical
+    detector is a .pkl, SSL/CNN models are .pt)."""
     d = _CHECKPOINTS_ROOT / subdir
-    pts = sorted(d.glob("**/model_best.pt"), key=lambda p: p.stat().st_mtime) if d.exists() else []
+    pts = (
+        sorted(d.glob(f"**/model_best{ext}"), key=lambda p: p.stat().st_mtime) if d.exists() else []
+    )
     return pts[-1] if pts else None
 
 
@@ -165,8 +172,9 @@ _REGISTRY_DEF: dict[str, dict] = {
         "loader": _load_ssl("facebook/wav2vec2-xls-r-300m"),
         "discover": "xls_r",
     },
-    # Production headline model: XLS-R-300m + AASIST graph-attention back-end,
-    # Kokoro-hardened (eval EER 2.61%, Kokoro ~93%, IndexTTS2 100%).
+    # Production headline model (v9c): XLS-R-300m + AASIST graph-attention
+    # back-end, official ASVspoof 2021 LA eval EER 2.84% (catches clones +
+    # premium TTS). See docs/RESULTS_canonical.md.
     "xls_r_aasist": {
         "env": "XLS_R_AASIST_PATH",
         "loader": _load_ssl_aasist("facebook/wav2vec2-xls-r-300m"),
@@ -185,8 +193,8 @@ class ModelRegistry:
         if env_val:
             p = Path(env_val)
             return p if p.exists() else None
-        # Auto-discover newest model_best.pt
-        return _newest_pt(defn.get("discover", key))
+        # Auto-discover newest model_best<ext> (ext-aware: classical is .pkl)
+        return _newest_pt(defn.get("discover", key), defn.get("ext", ".pt"))
 
     def load(self, key: str) -> Any | None:
         """Load and cache model by key. Returns None if no checkpoint found."""
@@ -200,13 +208,11 @@ class ModelRegistry:
             self._cache[key] = None
             return None
         try:
-            ext = defn.get("ext", ".pt")
-            if not str(path).endswith(ext) and ext != ".pt":
-                path = path.with_suffix(ext)
             model = defn["loader"](path)
             self._cache[key] = model
             return model
         except Exception:
+            logger.exception("Failed to load model '%s' from %s", key, path)
             self._cache[key] = None
             return None
 

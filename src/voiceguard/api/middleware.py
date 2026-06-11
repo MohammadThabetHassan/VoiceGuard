@@ -28,6 +28,9 @@ async def pdpl_auto_delete(path: str | Path, delay: float = PDPL_MAX_AGE_SECONDS
         os.unlink(path)
     except OSError:
         pass
+    # Drop the timing entry so PDPLTimingMiddleware._registry doesn't grow forever
+    # (register() runs per upload; this is the only unregister site).
+    PDPLTimingMiddleware.unregister(str(path))
 
 
 def make_temp_audio_file(suffix: str = ".wav") -> tuple[int, str]:
