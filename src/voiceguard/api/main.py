@@ -19,6 +19,7 @@ import hashlib
 import logging
 import os
 import time
+import uuid
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
@@ -575,7 +576,8 @@ async def synthesize(
     # then embed at an inaudible amplitude (≤ the documented 0.005).
     wm_audio, wm_sr = ensure_carrier_sr(np.asarray(audio, dtype=np.float32), sr)
     watermarked, watermark_id = embed(wm_audio, sr=wm_sr, amplitude=0.003)
-    fname = f"vg_{int(time.time() * 1000)}_{engine}.wav"
+    # uuid4, not a timestamp: /media is unauthenticated, so names must be unguessable
+    fname = f"vg_{uuid.uuid4().hex}_{engine}.wav"
     out_path = MEDIA_DIR / fname
     sf.write(str(out_path), watermarked, wm_sr)
 
@@ -650,7 +652,8 @@ async def forensic_report(
         f"Verdict: {record['label']} (server-verified)",
     )
 
-    fname = f"report_{body.audio_hash[:12]}_{int(time.time())}.pdf"
+    # uuid4, not a timestamp: /media is unauthenticated, so names must be unguessable
+    fname = f"report_{body.audio_hash[:12]}_{uuid.uuid4().hex}.pdf"
     out_path = MEDIA_DIR / fname
     try:
         generate_report(
@@ -714,12 +717,47 @@ async def websocket_stream(websocket: WebSocket, token: str = ""):
         pass
 
 
+def _verify_twilio_signature(websocket: WebSocket) -> bool:
+    """Validate Twilio's X-Twilio-Signature on the WebSocket handshake.
+
+    Twilio signs every request as base64(HMAC-SHA1(auth_token, public URL)).
+    With TWILIO_AUTH_TOKEN unset the bridge stays open in development but is
+    refused in production — an unauthenticated endpoint would let anyone burn
+    model inference.
+    """
+    import base64
+    import hmac
+
+    token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    if not token:
+        return os.environ.get("VG_ENV", "development") != "production"
+    signature = websocket.headers.get("x-twilio-signature", "")
+    if not signature:
+        return False
+    # Rebuild the public URL Twilio signed (nginx preserves Host + sets
+    # X-Forwarded-Proto; Twilio Media Streams always connects over wss).
+    proto = websocket.headers.get("x-forwarded-proto", websocket.url.scheme)
+    scheme = "wss" if proto in ("https", "wss") else "ws"
+    host = websocket.headers.get("host", websocket.url.netloc)
+    url = f"{scheme}://{host}{websocket.url.path}"
+    if websocket.url.query:
+        url += f"?{websocket.url.query}"
+    expected = base64.b64encode(
+        hmac.new(token.encode(), url.encode(), hashlib.sha1).digest()  # noqa: S324 — Twilio's scheme is HMAC-SHA1
+    ).decode()
+    return hmac.compare_digest(expected, signature)
+
+
 @app.websocket("/twilio/stream")
 async def twilio_stream(websocket: WebSocket):
     """Twilio Media Stream WebSocket bridge.
 
     Receives μ-law encoded 8kHz audio from Twilio and runs detection.
+    Authenticated via X-Twilio-Signature when TWILIO_AUTH_TOKEN is set.
     """
+    if not _verify_twilio_signature(websocket):
+        await websocket.close(code=1008)  # rejects the handshake with HTTP 403
+        return
     await websocket.accept()
     try:
         from voiceguard.voip.twilio_bridge import TwilioStreamHandler
