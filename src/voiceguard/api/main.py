@@ -16,6 +16,7 @@ Security: JWT auth, slowapi 60 req/min, PDPL auto-delete ≤60s.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import time
 from contextlib import asynccontextmanager
@@ -68,8 +69,11 @@ from voiceguard.api.schemas import (
     SynthesisResult,
     TokenResponse,
 )
+from voiceguard.forensics import result_store
 
 __version__ = "1.0.0"
+
+logger = logging.getLogger(__name__)
 
 # ── Model registry ─────────────────────────────────────────────────────────────
 
@@ -80,7 +84,19 @@ from voiceguard.models.registry import registry  # noqa: E402
 async def lifespan(app: FastAPI):
     check_production_security()  # refuse to start with a default SECRET_KEY in production
     registry.preload()  # loads any model whose env-var is set at startup
+    _sweep_media_dir()  # remove stale media whose TTL timers were lost on restart
     yield
+
+
+def _sweep_media_dir() -> None:
+    """Delete MEDIA_DIR files older than MEDIA_TTL_S (TTL timers don't survive restart)."""
+    now = time.time()
+    for f in MEDIA_DIR.glob("*"):
+        try:
+            if f.is_file() and now - f.stat().st_mtime > MEDIA_TTL_S:
+                f.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("media sweep: could not remove %s", f, exc_info=True)
 
 
 # ── Application ────────────────────────────────────────────────────────────────
@@ -123,7 +139,9 @@ ALLOWED_ORIGINS = list(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    # Auth is via Bearer token (Authorization header), not cookies, so credentialed
+    # CORS is unnecessary — keeping it False avoids relaxing the same-origin policy.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -138,43 +156,67 @@ app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 ACCEPTED_CONTENT_TYPES = {"audio/wav", "audio/wave", "audio/x-wav", "audio/mpeg", "audio/flac"}
+ACCEPTED_SUFFIXES = {".wav", ".mp3", ".flac"}
 MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100MB
+_UPLOAD_CHUNK = 1024 * 1024  # 1MB
 
 
 async def save_upload(upload: UploadFile) -> tuple[str, str]:
-    """Save upload to temp file, return (path, sha256_hex)."""
-    content = await upload.read()
-    if len(content) > MAX_FILE_SIZE_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File exceeds {MAX_FILE_SIZE_BYTES // (1024 * 1024)}MB limit",
-        )
-    sha256 = hashlib.sha256(content).hexdigest()
-    suffix = Path(upload.filename or "audio.wav").suffix or ".wav"
-    fd, path = make_temp_audio_file(suffix=suffix)
-    try:
-        import os as _os
+    """Stream an upload to a temp file; return (path, sha256_hex).
 
-        _os.write(fd, content)
-        _os.close(fd)
+    Rejects non-audio uploads (415) and streams in 1MB chunks — hashing
+    incrementally and aborting with 413 as soon as the running size exceeds the
+    limit — so a large body never lands fully in RAM.
+    """
+    import os as _os
+
+    suffix = (Path(upload.filename or "audio.wav").suffix or ".wav").lower()
+    ctype = (upload.content_type or "").split(";")[0].strip().lower()
+    if ctype not in ACCEPTED_CONTENT_TYPES and suffix not in ACCEPTED_SUFFIXES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported media type — upload WAV, MP3, or FLAC audio.",
+        )
+
+    fd, path = make_temp_audio_file(suffix=suffix)
+    sha256 = hashlib.sha256()
+    total = 0
+    try:
+        with _os.fdopen(fd, "wb") as out:
+            while chunk := await upload.read(_UPLOAD_CHUNK):
+                total += len(chunk)
+                if total > MAX_FILE_SIZE_BYTES:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=f"File exceeds {MAX_FILE_SIZE_BYTES // (1024 * 1024)}MB limit",
+                    )
+                sha256.update(chunk)
+                out.write(chunk)
+    except HTTPException:
+        Path(path).unlink(missing_ok=True)  # drop the partial file
+        raise
     except OSError as exc:
+        Path(path).unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail="Failed to save upload") from exc
+
     PDPLTimingMiddleware.register(path)
-    return path, sha256
+    return path, sha256.hexdigest()
 
 
 def _detect_classical(path: str) -> tuple[str, float]:
-    """Run classical detection. Returns (label, confidence)."""
-    from scipy.io import wavfile
+    """Run classical detection. Returns (label, confidence).
+
+    Loads via torchaudio so MP3/FLAC (not just WAV) are supported, matching the
+    formats the API advertises.
+    """
+    import torchaudio
 
     from voiceguard.features.extractor import extract_features
 
-    sr, data = wavfile.read(path)
-    if data.ndim > 1:
-        data = data.mean(axis=1)
-    data = data.astype(np.float32)
+    wav, sr = torchaudio.load(path)
+    data = wav.mean(0).numpy().astype(np.float32)  # mono float32
     mx = np.max(np.abs(data)) + 1e-8
-    data /= mx
+    data = (data / mx).astype(np.float32)
     features = extract_features(data, sr)
 
     detector = registry.load("classical")
@@ -183,31 +225,117 @@ def _detect_classical(path: str) -> tuple[str, float]:
     return detector.predict_features(features)
 
 
-def _explain_ssl(path: str, model_key: str) -> ExplanationResult | None:
-    """Run Integrated Gradients attribution on an SSL model."""
-    import torch
+# SSL models take (B, T); CNN models (DSFNet/AASIST) take (B, 1, T).
+_SSL_KEYS = {
+    "wav2vec2",
+    "wavlm_base_plus",
+    "wavlm_large",
+    "wav2vec2_large",
+    "xls_r",
+    "xls_r_aasist",
+}
+_WIN = 48000  # 3s @ 16kHz
+_HOP = 24000  # 1.5s hop
+_MAX_WINDOWS = 60
+
+
+def _load_wav_mono16k(path: str):
+    """Load *path* as a mono (1, T) float32 tensor at 16 kHz (single file read)."""
     import torchaudio
 
-    from voiceguard.xai.ssl_explain import explain_waveform
-
-    model = registry.load(model_key)
-    if model is None:
-        return None
     wav, sr = torchaudio.load(path)
     if sr != 16000:
         wav = torchaudio.functional.resample(wav, sr, 16000)
-    wav = wav.mean(0)  # (T,)
-    target_len = 48000
-    if wav.shape[-1] < target_len:
-        wav = torch.nn.functional.pad(wav, (0, target_len - wav.shape[-1]))
-    else:
-        wav = wav[..., :target_len]
-    wav = wav.unsqueeze(0)  # (1, T)
+    return wav.mean(0, keepdim=True)  # (1, T)
 
+
+def _guard_audio_quality(wav) -> None:
+    """Reject too-short / near-silent clips — the detector is only meaningful on
+    speech, and returns a confident (usually wrong) "fake" on silence/noise."""
+    if wav.shape[-1] / 16000 < 0.8:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Audio too short to analyse — please upload at least ~1 second of speech.",
+        )
+    if float(wav.pow(2).mean().sqrt()) < 1e-3:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Audio is silent or near-silent — no speech detected to analyse.",
+        )
+
+
+def _window_starts(total: int) -> list[int]:
+    """3s windows with 1.5s hop over `total` samples (≤ _MAX_WINDOWS, evenly spaced)."""
+    if total <= _WIN:
+        return [0]
+    starts = list(range(0, total - _WIN + 1, _HOP))
+    if starts[-1] != total - _WIN:
+        starts.append(total - _WIN)  # always cover the tail
+    if len(starts) > _MAX_WINDOWS:
+        idx = np.linspace(0, len(starts) - 1, _MAX_WINDOWS).round().astype(int)
+        starts = [starts[i] for i in sorted(set(idx.tolist()))]
+    return starts
+
+
+def _ssl_window_fake_probs(model, wav, model_key: str) -> list[float]:
+    """Score each 3s window of `wav` (1, T); return per-window fake-probabilities."""
+    import torch
+
+    windows = []
+    for s in _window_starts(wav.shape[-1]):
+        w = wav[..., s : s + _WIN].squeeze(0)
+        if w.shape[-1] < _WIN:
+            w = torch.nn.functional.pad(w, (0, _WIN - w.shape[-1]))
+        windows.append(w)
+    probs: list[float] = []
+    with torch.no_grad():
+        for i in range(0, len(windows), 8):  # batch to bound memory
+            batch = torch.stack(windows[i : i + 8])  # (B, T)
+            inp = batch if model_key in _SSL_KEYS else batch.unsqueeze(1)  # (B,T) / (B,1,T)
+            p = torch.softmax(model(inp), dim=-1)[:, 1]
+            probs.extend(p.cpu().tolist())
+    return probs
+
+
+def _detect_ssl_tensor(wav, model_key: str) -> tuple[str, float, int]:
+    """Sliding-window SSL detection over the full clip. Returns (label, conf, n_windows).
+
+    ``fake_prob = max`` over windows, so a fake anywhere in a long clip is caught.
+    """
+    model = registry.load(model_key)
+    if model is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Model '{model_key}' checkpoint not found. Set {model_key.upper()}_PATH.",
+        )
+    _guard_audio_quality(wav)
+    probs = _ssl_window_fake_probs(model, wav, model_key)
+    fake_prob = max(probs)
+    label = "fake" if fake_prob >= 0.5 else "real"
+    confidence = fake_prob if label == "fake" else 1.0 - fake_prob
+    return label, round(confidence, 4), len(probs)
+
+
+def _detect_ssl(path: str, model_key: str) -> tuple[str, float, int]:
+    return _detect_ssl_tensor(_load_wav_mono16k(path), model_key)
+
+
+def _first_window(wav):
+    """First 3s window of `wav` (1, T) as a padded (1, _WIN) tensor for attribution."""
+    import torch
+
+    w = wav.squeeze(0)
+    w = torch.nn.functional.pad(w, (0, _WIN - w.shape[-1])) if w.shape[-1] < _WIN else w[:_WIN]
+    return w.unsqueeze(0)
+
+
+def _build_explanation(model, wav_1xT) -> ExplanationResult | None:
+    """Integrated-Gradients attribution → ExplanationResult (None on failure)."""
     try:
-        raw = explain_waveform(model, wav)
         from voiceguard.api.schemas import AttributionSegment
+        from voiceguard.xai.ssl_explain import explain_waveform
 
+        raw = explain_waveform(model, wav_1xT)
         return ExplanationResult(
             method=raw["method"],
             baseline=raw["baseline"],
@@ -216,75 +344,27 @@ def _explain_ssl(path: str, model_key: str) -> ExplanationResult | None:
             attribution_frames=raw["attribution_frames"],
             top_segments=[AttributionSegment(**s) for s in raw["top_segments"]],
         )
-    except Exception:  # noqa: S110
+    except Exception:
+        logger.warning("attribution failed", exc_info=True)
         return None
 
 
-def _detect_ssl(path: str, model_key: str) -> tuple[str, float]:
-    """Run SSL/DSFNet/AASIST detection via the registry."""
-    import torch
-    import torchaudio
-
+def _explain_ssl(path: str, model_key: str) -> ExplanationResult | None:
+    """Run Integrated Gradients attribution on an SSL model (loads its own file)."""
     model = registry.load(model_key)
     if model is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Model '{model_key}' checkpoint not found. Set {model_key.upper()}_PATH.",
-        )
-    wav, sr = torchaudio.load(path)
-    if sr != 16000:
-        wav = torchaudio.functional.resample(wav, sr, 16000)
-    wav = wav.mean(0, keepdim=True)  # mono (1, T)
-
-    # Input-quality guard: the detector is only meaningful on actual speech.
-    # Reject clips that are too short or near-silent rather than returning a
-    # confident (and usually wrong) "fake" on silence/noise/empty uploads.
-    duration_s = wav.shape[-1] / 16000
-    rms = float(wav.pow(2).mean().sqrt())
-    if duration_s < 0.8:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Audio too short to analyse — please upload at least ~1 second of speech.",
-        )
-    if rms < 1e-3:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Audio is silent or near-silent — no speech detected to analyse.",
-        )
-
-    target_len = 48000
-    if wav.shape[-1] < target_len:
-        wav = torch.nn.functional.pad(wav, (0, target_len - wav.shape[-1]))
-    else:
-        wav = wav[..., :target_len]
-
-    with torch.no_grad():
-        # SSL models expect (B, T); CNN models expect (B, 1, T)
-        if model_key in (
-            "wav2vec2",
-            "wavlm_base_plus",
-            "wavlm_large",
-            "wav2vec2_large",
-            "xls_r",
-            "xls_r_aasist",
-        ):
-            inp = wav.squeeze(0).unsqueeze(0)  # (1, T)
-        else:
-            inp = wav.unsqueeze(0)  # (1, 1, T)
-        logits = model(inp)
-        probs = torch.softmax(logits, dim=-1)[0]
-    fake_prob = float(probs[1])
-    label = "fake" if fake_prob >= 0.5 else "real"
-    confidence = fake_prob if label == "fake" else float(probs[0])
-    return label, round(confidence, 4)
+        return None
+    return _build_explanation(model, _first_window(_load_wav_mono16k(path)))
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
 @app.post("/token", response_model=TokenResponse, tags=["auth"])
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+@limiter.limit("5/minute")
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     if not authenticate_user(form_data.username, form_data.password):
+        logger.info("login failed for user=%r", form_data.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -309,10 +389,12 @@ async def detect(
 ):
     """Upload an audio file and receive a deepfake detection result.
 
-    Accepted formats: WAV, MP3, FLAC (max 100MB).
-    Raw audio is auto-deleted after 60 seconds (PDPL compliance).
-    Pass `explain=true` to include Integrated Gradients attribution showing
-    which time segments drove the fake/real decision.
+    Accepted formats: WAV, MP3, FLAC (max 100MB). Clips longer than 3s are scored
+    with a sliding 3s window (1.5s hop); the verdict uses the maximum per-window
+    fake probability, so a fake anywhere in a long clip is caught
+    (`windows_analyzed` reports the window count). Raw audio is auto-deleted after
+    60 seconds (PDPL compliance). Pass `explain=true` to include Integrated
+    Gradients attribution showing which time segments drove the decision.
     """
     path, audio_hash = await save_upload(file)
     background_tasks.add_task(pdpl_auto_delete, path)
@@ -321,12 +403,38 @@ async def detect(
 
     if model == ModelType.classical:
         label, confidence = _detect_classical(path)
+        windows = 1
         explanation = None
     else:
-        label, confidence = _detect_ssl(path, str(model))
-        explanation = _explain_ssl(path, str(model)) if explain else None
+        # Load the waveform once and share it between detection and attribution.
+        wav = _load_wav_mono16k(path)
+        label, confidence, windows = _detect_ssl_tensor(wav, str(model))
+        explanation = None
+        if explain:
+            model_obj = registry.load(str(model))
+            explanation = _build_explanation(model_obj, _first_window(wav)) if model_obj else None
 
     latency_ms = (time.perf_counter() - t0) * 1000
+
+    # Record the server-verified result so /forensic/report can't be forged with a
+    # client-supplied verdict (P0-10).
+    result_store.record(
+        audio_hash,
+        label=label,
+        confidence=round(confidence, 4),
+        model=str(model),
+        user=_user,
+        timestamp=time.time(),
+    )
+    logger.info(
+        "detect user=%s model=%s verdict=%s conf=%.3f windows=%d latency_ms=%.1f",
+        _user,
+        model,
+        label,
+        confidence,
+        windows,
+        latency_ms,
+    )
 
     return DetectionResult(
         label=label,
@@ -334,6 +442,7 @@ async def detect(
         model=model,
         latency_ms=round(latency_ms, 2),
         audio_hash=audio_hash,
+        windows_analyzed=windows,
         explanation=explanation,
     )
 
@@ -398,12 +507,22 @@ async def synthesize(
 
     ref_path: str | None = None
     if eng.requires_reference:
+        # Voice cloning consent is enforced server-side, not just in the UI.
+        if not consent:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Voice cloning requires explicit consent that you are authorised to "
+                    "clone this voice. Set consent=true to proceed."
+                ),
+            )
         if reference is None:
             raise HTTPException(
                 status_code=422, detail=f"Engine '{engine}' requires a reference audio clip."
             )
         ref_path, _ = await save_upload(reference)
         background_tasks.add_task(pdpl_auto_delete, ref_path)
+        logger.info("clone consent acknowledged user=%s engine=%s", _user, engine)
 
     t0 = time.perf_counter()
     try:
@@ -439,6 +558,13 @@ async def synthesize(
 
     _schedule_media_cleanup(out_path)
     latency_ms = (time.perf_counter() - t0) * 1000
+    logger.info(
+        "synthesize user=%s engine=%s c2pa=%s latency_ms=%.1f",
+        _user,
+        engine,
+        bool(c2pa_status.get("signed")),
+        latency_ms,
+    )
     return SynthesisResult(
         audio_url=f"/api/media/{fname}",
         watermark_id=watermark_id,
@@ -455,21 +581,45 @@ async def forensic_report(
     body: ForensicReportRequest,
     _user: str = Depends(get_current_user),
 ):
-    """Generate a NIST SP 800-86 compliant PDF forensic report."""
+    """Generate a NIST SP 800-86 compliant PDF forensic report.
+
+    The verdict is taken from VoiceGuard's own server-side detection record for the
+    audio hash (set by /detect), NOT from any client-supplied value — a report
+    cannot be forged with a fabricated verdict. Returns 404 if no detection has
+    been run for this hash.
+    """
     from voiceguard.forensics.chain_of_custody import ChainOfCustody
     from voiceguard.forensics.pdf_report import generate_report
 
+    record = result_store.get(body.audio_hash)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No server-side detection record for this audio hash — run /detect first.",
+        )
+    # Build the report from the verified record; the request's detection_result is ignored.
+    detection_result = {
+        "label": record["label"],
+        "confidence": record["confidence"],
+        "model": record["model"],
+        "server_verified": True,
+    }
+
     coc = ChainOfCustody()
     coc.add_event("evidence_received", body.analyst_name, body.audio_hash, "Audio submitted")
-    verdict = str(body.detection_result.get("label", "unknown"))
-    coc.add_event("analysis_completed", "VoiceGuard", body.audio_hash, f"Verdict: {verdict}")
+    coc.add_event(
+        "analysis_completed",
+        "VoiceGuard",
+        body.audio_hash,
+        f"Verdict: {record['label']} (server-verified)",
+    )
 
     fname = f"report_{body.audio_hash[:12]}_{int(time.time())}.pdf"
     out_path = MEDIA_DIR / fname
     try:
         generate_report(
             audio_hash=body.audio_hash,
-            detection_result=body.detection_result,
+            detection_result=detection_result,
             chain_of_custody=coc.to_dict(),
             analyst_name=body.analyst_name,
             output_path=out_path,
@@ -512,13 +662,14 @@ async def websocket_stream(websocket: WebSocket, token: str = ""):
 
                 audio = np.frombuffer(window, dtype=np.int16).astype(np.float32) / 32768.0
 
-                label, confidence = _detect_ssl_array(audio, 16000)
+                label, confidence, used_model = _detect_ssl_array(audio, 16000)
 
                 event = StreamDetectionEvent(
                     timestamp_ms=time.time() * 1000,
                     window_id=window_id,
                     label=label,
                     confidence=confidence,
+                    model=used_model,
                 )
                 await websocket.send_json(event.model_dump())
                 window_id += 1
@@ -551,7 +702,7 @@ async def explain(
     request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    model: ModelType = ModelType.wav2vec2,
+    model: ModelType = ModelType.xls_r_aasist,
     _user: str = Depends(get_current_user),
 ):
     """Return Integrated Gradients attribution for an uploaded audio file.
@@ -617,18 +768,22 @@ def _detect_classical_array(audio: np.ndarray, sr: int) -> tuple[str, float]:
 
 def _detect_ssl_array(
     audio: np.ndarray, sr: int, model_key: str = "xls_r_aasist"
-) -> tuple[str, float]:
+) -> tuple[str, float, str]:
     """Score a raw audio window with the SSL production detector (live streaming).
 
-    Falls back to the lightweight classical detector if the SSL checkpoint is
-    unavailable, so the stream degrades gracefully instead of failing.
+    Returns (label, confidence, model) where `model` names which detector actually
+    scored the window: the SSL key, "classical" (SSL checkpoint unavailable), or
+    "stub" (no detector at all) — so the client knows what produced the verdict.
     """
     import torch
     import torchaudio
 
     model = registry.load(model_key)
     if model is None:
-        return _detect_classical_array(audio, sr)
+        label, confidence = _detect_classical_array(audio, sr)
+        used = "classical" if registry.load("classical") is not None else "stub"
+        logger.info("stream: %s unavailable, scored with %s", model_key, used)
+        return label, confidence, used
     wav = torch.as_tensor(np.asarray(audio, dtype=np.float32)).reshape(1, -1)
     if sr != 16000:
         wav = torchaudio.functional.resample(wav, sr, 16000)
@@ -641,4 +796,4 @@ def _detect_ssl_array(
         probs = torch.softmax(model(wav), dim=-1)[0]  # SSL models take (B, T)
     fake_prob = float(probs[1])
     label = "fake" if fake_prob >= 0.5 else "real"
-    return label, round(fake_prob if label == "fake" else float(probs[0]), 4)
+    return label, round(fake_prob if label == "fake" else float(probs[0]), 4), model_key

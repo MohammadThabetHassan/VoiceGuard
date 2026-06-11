@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   backend:
     build:
@@ -13,8 +11,6 @@ services:
       - SECRET_KEY=${SECRET_KEY:-dev-secret-changeme-in-production}
       - VG_ENV=${VG_ENV:-development}
       - PDPL_MAX_AGE_SECONDS=${PDPL_MAX_AGE_SECONDS:-60}
-    volumes:
-      - /tmp/voiceguard-uploads:/tmp/voiceguard-uploads
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

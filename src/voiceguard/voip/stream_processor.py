@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _resample_linear(audio: np.ndarray, input_sr: int, target_sr: int) -> np.ndarray:
@@ -44,19 +48,21 @@ class StreamProcessor:
         if len(self._buffer) >= self._window_samples:
             window = self._buffer[: self._window_samples]
             self._buffer = self._buffer[self._hop_samples :]
-            label, confidence = self._run_detection(window)
+            label, confidence, model = self._run_detection(window)
             result = {
                 "window_id": self._window_id,
                 "label": label,
                 "confidence": round(float(confidence), 4),
+                "model": model,
             }
             self._window_id += 1
             return result
         return None
 
-    def _run_detection(self, audio: np.ndarray) -> tuple[str, float]:
-        """Score the window with the SSL production model, falling back to the
-        classical detector then a neutral stub so streaming never hard-fails."""
+    def _run_detection(self, audio: np.ndarray) -> tuple[str, float, str]:
+        """Score the window, returning (label, confidence, model). `model` names which
+        detector actually scored it ("xls_r_aasist" | "classical" | "stub") so callers
+        know what produced the verdict and fallbacks are visible in logs."""
         # Preferred: SSL production detector (same model as /detect and /ws/stream).
         try:
             import torch
@@ -70,10 +76,10 @@ class StreamProcessor:
                     probs = torch.softmax(model(wav), dim=-1)[0]
                 fake_p = float(probs[1])
                 if fake_p >= 0.5:
-                    return "fake", fake_p
-                return "real", float(probs[0])
-        except Exception:  # noqa: S110, BLE001 — fall back to classical below
-            pass
+                    return "fake", fake_p, "xls_r_aasist"
+                return "real", float(probs[0]), "xls_r_aasist"
+        except Exception:
+            logger.warning("stream: SSL detection failed, falling back to classical", exc_info=True)
         # Fallback: classical detector (stub if no trained model is present).
         try:
             from voiceguard.features.extractor import extract_features
@@ -82,10 +88,13 @@ class StreamProcessor:
             features = extract_features(audio, self.target_sr)
             detector = ClassicalDetector()
             if detector._clf is None:
-                return "real", 0.5
-            return detector.predict_features(features)
-        except Exception:  # noqa: BLE001
-            return "real", 0.5
+                logger.info("stream: no trained detector, returning neutral stub verdict")
+                return "real", 0.5, "stub"
+            label, confidence = detector.predict_features(features)
+            return label, confidence, "classical"
+        except Exception:
+            logger.warning("stream: classical detection failed, returning stub", exc_info=True)
+            return "real", 0.5, "stub"
 
     def reset(self) -> None:
         """Clear the buffer (call when a new call starts)."""

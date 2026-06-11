@@ -15,4 +15,7 @@ RUN pip install --no-cache-dir -e . \
 
 EXPOSE 8000
 
-CMD ["uvicorn", "voiceguard.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers + --forwarded-allow-ips "*": behind the compose nginx, trust
+# X-Forwarded-For so rate limiting keys on the real client IP (container network).
+CMD ["uvicorn", "voiceguard.api.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--proxy-headers", "--forwarded-allow-ips", "*"]

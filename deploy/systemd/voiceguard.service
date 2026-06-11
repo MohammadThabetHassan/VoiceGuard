@@ -41,12 +41,16 @@ Environment="VOICEGUARD_DOMAIN=YOUR_DOMAIN"
 # onto the host and point this at it, else /detect returns 503 (no model). Path
 # replaced by setup.sh from MODEL_CKPT.
 Environment="XLS_R_AASIST_PATH=/home/YOUR_USERNAME/voiceguard/models/xls_r_aasist.pt"
+# --proxy-headers + --forwarded-allow-ips 127.0.0.1: trust X-Forwarded-For from the
+# local Nginx so slowapi rate-limits per real client IP, not all as 127.0.0.1.
 ExecStart=/home/YOUR_USERNAME/voiceguard/venv/bin/uvicorn voiceguard.api.main:app \
     --host 127.0.0.1 \
     --port 8000 \
     --workers 1 \
     --log-level info \
-    --access-log
+    --access-log \
+    --proxy-headers \
+    --forwarded-allow-ips 127.0.0.1
 
 StandardOutput=journal
 StandardError=journal

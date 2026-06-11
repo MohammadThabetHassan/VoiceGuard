@@ -21,8 +21,11 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import os
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # IPTC digital-source-type for content created by a trained algorithm (the C2PA /
 # CAI standard marker for AI-generated media).
@@ -177,6 +180,7 @@ def sign_file(
         builder.sign_file(in_path, out_path, signer)
         return {"signed": True, "digital_source_type": "trainedAlgorithmicMedia"}
     except Exception as exc:  # noqa: BLE001 — provenance is best-effort, never fatal
+        logger.warning("C2PA signing failed for %s: %s", in_path, exc, exc_info=True)
         return {"signed": False, "reason": f"{type(exc).__name__}: {exc}"}
 
 

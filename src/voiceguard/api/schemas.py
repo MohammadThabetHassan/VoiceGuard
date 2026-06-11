@@ -43,6 +43,9 @@ class DetectionResult(BaseModel):
     model: ModelType
     latency_ms: float
     audio_hash: str = Field(..., description="SHA-256 of uploaded audio")
+    windows_analyzed: int = Field(
+        1, description="Number of 3s windows scored (>1 for clips longer than 3s)"
+    )
     explanation: ExplanationResult | None = Field(
         None, description="Integrated Gradients attribution (only when explain=true)"
     )
@@ -80,7 +83,10 @@ class ForensicReportRequest(BaseModel):
     analyst_name: str = Field(default="Automated System")
     detection_result: dict = Field(
         default_factory=dict,
-        description="Detection result (label, confidence, model, latency_ms)",
+        description=(
+            "DEPRECATED and IGNORED — the report verdict now comes from VoiceGuard's "
+            "server-side detection record for audio_hash (a client value cannot forge it)."
+        ),
     )
     include_gradcam: bool = True
     include_shap: bool = True
@@ -114,4 +120,7 @@ class StreamDetectionEvent(BaseModel):
     window_id: int
     label: str
     confidence: float
+    model: str | None = Field(
+        None, description="Which detector scored the window: xls_r_aasist | classical | stub"
+    )
     eer_estimate: float | None = None

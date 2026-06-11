@@ -212,22 +212,167 @@ async def test_synthesize_unavailable_engine_501(auth_client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_synthesize_clone_requires_reference_422(auth_client, monkeypatch):
-    # Cloning engine "available" but no reference clip provided → 422.
+async def test_synthesize_clone_no_consent_403(auth_client, monkeypatch):
+    # Cloning engine available but consent not given → 403 (server-side gate, P0-9).
     from voiceguard.synthesis import clone_engine
 
     monkeypatch.setattr(clone_engine.IndexTTS2Engine, "is_available", lambda self: True)
-    resp = await auth_client.post("/synthesize", data={"text": "hi", "engine": "indextts2"})
-    assert resp.status_code == 422
+    resp = await auth_client.post(
+        "/synthesize", data={"text": "hi", "engine": "indextts2", "consent": "false"}
+    )
+    assert resp.status_code == 403
 
 
 @pytest.mark.asyncio
-async def test_forensic_report_returns_pdf_url(auth_client):
+async def test_synthesize_clone_requires_reference_422(auth_client, monkeypatch):
+    # Consent given but no reference clip → 422.
+    from voiceguard.synthesis import clone_engine
+
+    monkeypatch.setattr(clone_engine.IndexTTS2Engine, "is_available", lambda self: True)
     resp = await auth_client.post(
-        "/forensic/report",
-        json={"audio_hash": "a" * 64},
+        "/synthesize", data={"text": "hi", "engine": "indextts2", "consent": "true"}
     )
+    assert resp.status_code == 422
+
+
+async def _detect_classical(client, wav_bytes) -> str:
+    """Run a classical detection and return its audio_hash (server records it)."""
+    resp = await client.post(
+        "/detect",
+        files={"file": ("test.wav", wav_bytes, "audio/wav")},
+        params={"model": "classical"},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["audio_hash"]
+
+
+@pytest.mark.asyncio
+async def test_forensic_report_uses_server_record(auth_client, wav_bytes):
+    # A report can only be built from a server-verified detection (P0-10).
+    audio_hash = await _detect_classical(auth_client, wav_bytes)
+    resp = await auth_client.post("/forensic/report", json={"audio_hash": audio_hash})
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["report_url"].endswith(".pdf")
     assert len(data["chain_of_custody_hash"]) == 64  # SHA-256 hex
+
+
+@pytest.mark.asyncio
+async def test_forensic_report_unknown_hash_404(auth_client):
+    # No server-side detection record for this hash → 404, not a forged report.
+    resp = await auth_client.post("/forensic/report", json={"audio_hash": "f" * 64})
+    assert resp.status_code == 404
+
+
+# ── Upload validation / format support (P0-3, P0-7) ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_detect_rejects_text_file_415(auth_client):
+    resp = await auth_client.post(
+        "/detect",
+        files={"file": ("notes.txt", b"not audio", "text/plain")},
+        params={"model": "classical"},
+    )
+    assert resp.status_code == 415
+
+
+@pytest.mark.asyncio
+async def test_detect_classical_flac(auth_client):
+    import io
+
+    import soundfile as sf
+
+    buf = io.BytesIO()
+    sf.write(buf, (np.random.randn(16000) * 0.1).astype(np.float32), 16000, format="FLAC")
+    resp = await auth_client.post(
+        "/detect",
+        files={"file": ("a.flac", buf.getvalue(), "audio/flac")},
+        params={"model": "classical"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["label"] in ("real", "fake")
+
+
+@pytest.mark.asyncio
+async def test_upload_too_large_413(auth_client, wav_bytes, monkeypatch):
+    from voiceguard.api import main as m
+
+    monkeypatch.setattr(m, "MAX_FILE_SIZE_BYTES", 16)  # smaller than wav_bytes
+    resp = await auth_client.post(
+        "/detect",
+        files={"file": ("test.wav", wav_bytes, "audio/wav")},
+        params={"model": "classical"},
+    )
+    assert resp.status_code == 413
+
+
+# ── Sliding-window detection (P0-2) ─────────────────────────────────────────────
+
+
+def test_window_starts_covers_long_clip():
+    from voiceguard.api.main import _HOP, _MAX_WINDOWS, _WIN, _window_starts
+
+    assert _window_starts(_WIN) == [0]  # <= 3s → single window
+    assert _window_starts(1000) == [0]
+    starts = _window_starts(_WIN * 4)
+    assert starts[0] == 0
+    assert starts[-1] == _WIN * 4 - _WIN  # tail always covered
+    assert len(starts) > 1
+    assert len(_window_starts(_WIN + _HOP * 5000)) <= _MAX_WINDOWS  # capped
+
+
+@pytest.mark.asyncio
+async def test_detect_long_clip_windows(auth_client, monkeypatch):
+    """A 10s clip is scored over multiple windows; a fake in any window → fake."""
+    import io
+    import wave
+
+    import torch
+
+    from voiceguard.api import main as m
+
+    class _AllFake:
+        def __call__(self, x):  # x: (B, T) → (B, 2) logits favouring 'fake'
+            return torch.tensor([[0.0, 6.0]] * x.shape[0])
+
+    monkeypatch.setattr(m.registry, "load", lambda key: _AllFake())
+
+    sr = 16000
+    samples = (np.random.randn(sr * 10) * 0.1 * 32767).astype(np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(samples.tobytes())
+
+    resp = await auth_client.post(
+        "/detect",
+        files={"file": ("long.wav", buf.getvalue(), "audio/wav")},
+        params={"model": "xls_r_aasist"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["windows_analyzed"] > 1
+    assert data["label"] == "fake"
+
+
+# ── /token brute-force rate limit (P0-6) ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_token_rate_limited():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        codes = []
+        for _ in range(7):
+            r = await client.post(
+                "/token",
+                data={
+                    "username": "admin",
+                    "password": "voiceguard2026",
+                },  # pragma: allowlist secret
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            codes.append(r.status_code)
+    assert 429 in codes  # 6th rapid attempt is throttled (limit 5/minute)
