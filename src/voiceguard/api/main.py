@@ -203,18 +203,30 @@ async def save_upload(upload: UploadFile) -> tuple[str, str]:
     return path, sha256.hexdigest()
 
 
+def _read_audio(path: str) -> tuple[np.ndarray, int]:
+    """Read an audio file to (mono float32 array, sample_rate) via soundfile.
+
+    soundfile (libsndfile) handles WAV/FLAC/OGG and MP3 (libsndfile ≥ 1.1) without
+    the optional TorchCodec backend that newer ``torchaudio.load`` requires — so
+    this works identically in CI and on the deploy host.
+    """
+    import soundfile as sf
+
+    data, sr = sf.read(path, dtype="float32", always_2d=False)
+    if data.ndim > 1:
+        data = data.mean(axis=1)  # mono
+    return np.ascontiguousarray(data, dtype=np.float32), sr
+
+
 def _detect_classical(path: str) -> tuple[str, float]:
     """Run classical detection. Returns (label, confidence).
 
-    Loads via torchaudio so MP3/FLAC (not just WAV) are supported, matching the
+    Loads via soundfile so MP3/FLAC (not just WAV) are supported, matching the
     formats the API advertises.
     """
-    import torchaudio
-
     from voiceguard.features.extractor import extract_features
 
-    wav, sr = torchaudio.load(path)
-    data = wav.mean(0).numpy().astype(np.float32)  # mono float32
+    data, sr = _read_audio(path)
     mx = np.max(np.abs(data)) + 1e-8
     data = (data / mx).astype(np.float32)
     features = extract_features(data, sr)
@@ -241,12 +253,14 @@ _MAX_WINDOWS = 60
 
 def _load_wav_mono16k(path: str):
     """Load *path* as a mono (1, T) float32 tensor at 16 kHz (single file read)."""
+    import torch
     import torchaudio
 
-    wav, sr = torchaudio.load(path)
+    data, sr = _read_audio(path)
+    wav = torch.from_numpy(data).unsqueeze(0)  # (1, T)
     if sr != 16000:
         wav = torchaudio.functional.resample(wav, sr, 16000)
-    return wav.mean(0, keepdim=True)  # (1, T)
+    return wav
 
 
 def _guard_audio_quality(wav) -> None:
