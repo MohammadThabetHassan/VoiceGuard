@@ -15,7 +15,6 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![IEEE SM2026](https://img.shields.io/badge/IEEE-SM2026-00629B.svg)](#-citation)
-[![Stars](https://img.shields.io/github/stars/MohammadThabetHassan/VoiceGuard?style=social)](https://github.com/MohammadThabetHassan/VoiceGuard/stargazers)
 
 [**🌐 Live demo**](https://voice-deepfake-vishing-detector-generator.eu.cc) ·
 <a href="#-quick-start">Quick start</a> ·
