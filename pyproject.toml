@@ -49,7 +49,7 @@ dependencies = [
   "reportlab>=4.0.0",
   # ONNX
   "onnx>=1.15.0",
-  "onnxruntime>=1.17.0",
+  "onnxruntime>=1.26.0",
   # Data
   "numpy>=2.4.6",
   "pandas>=2.1.0",
