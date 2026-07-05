@@ -4,6 +4,16 @@ Adds **audio-deepfake detection** to [IPED](https://github.com/sepinf-inc/IPED)
 (Indexador e Processador de Evidências Digitais — the Brazilian Federal Police's
 open-source digital-forensics platform).
 
+## Demo
+
+[![IPED + VoiceGuard deepfake detection demo](iped_results.png)](iped_voiceguard_demo.mp4)
+
+**▶ [Watch the 30-second demo](iped_voiceguard_demo.mp4)** — a screen capture of a real
+IPED 4.3.1 case run: the `VoiceGuardTask` scores each audio item, the synthetic clip
+lands in the **"Deepfake Audio (VoiceGuard)"** category and the **"VoiceGuard –
+Suspected Deepfake Audio"** bookmark, while the genuine recording passes. *(Click to
+play in GitHub's video viewer.)*
+
 ## Why this exists (VoiceGuard vs IPED)
 
 This is **additive, not competitive**. IPED's built-in audio ML tasks
