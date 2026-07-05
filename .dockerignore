@@ -1,0 +1,51 @@
+# Keep the Docker build context small and deterministic. The backend build only
+# needs pyproject.toml, src/, and the single production checkpoint (baked in by
+# Dockerfile.portable) — everything below is either huge, regenerable, or secret.
+
+# VCS / tooling
+.git
+.gitignore
+.github
+CLAUDE.md
+.claude
+
+# Python build/cache artifacts (regenerated in-image)
+**/__pycache__
+**/*.pyc
+**/*.pyo
+*.egg-info
+src/*.egg-info
+build
+dist
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+.venv
+venv
+env
+
+# Frontend build inputs — the frontend image builds itself from ./frontend
+frontend/node_modules
+frontend/dist
+frontend/.vite
+
+# Large data / experiment trees that must never enter the context
+checkpoints
+edge
+data
+datasets
+backups
+logs
+*.log
+
+# Model weights: bake ONLY the deployed v9c detector; exclude the rollback copy
+# and every other weight file so the context stays ~1.2 GB, not 5 GB+.
+models/xls_r_aasist_v7.pt
+*.onnx
+
+# Secrets — never ship
+.env
+.env.*
+!.env.example

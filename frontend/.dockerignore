@@ -1,0 +1,6 @@
+# The frontend image runs `npm ci` + `npm run build` from a clean context —
+# shipping node_modules/dist would bloat the context and defeat reproducibility.
+node_modules
+dist
+.vite
+*.log

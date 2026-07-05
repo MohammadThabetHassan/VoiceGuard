@@ -1,0 +1,48 @@
+# Fully self-contained, offline-capable image of the VoiceGuard detector.
+#
+# Unlike the dev Dockerfile (which bind-mounts ./checkpoints from the host),
+# this bakes EVERYTHING the API needs to serve the production v9c detector into
+# the image itself:
+#   1. the app + CPU-only PyTorch stack
+#   2. the XLS-R-300m backbone, pre-fetched into the image's HuggingFace cache
+#   3. the fine-tuned v9c checkpoint (xls_r_aasist.pt) + its config.json
+# so it runs on any machine with Docker — no internet, no host files, no mounts.
+#
+# Build needs network (to fetch wheels + the backbone); run does not.
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ libsndfile1 ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# CPU torch wheels resolved in the same install as the rest of the deps — see
+# the dev Dockerfile for why PyPI-first would pull the CUDA build then downgrade.
+COPY pyproject.toml ./
+COPY src/ ./src/
+RUN pip install --no-cache-dir -e . \
+    --extra-index-url https://download.pytorch.org/whl/cpu
+
+# Pre-bake the XLS-R-300m backbone into the image HF cache. The production
+# SSLAASIST loader calls AutoModel.from_pretrained("facebook/wav2vec2-xls-r-300m")
+# at model-load time; fetching it now (build has network) makes the runtime fully
+# offline. HF_HOME must match at runtime for the offline cache hit to resolve.
+ENV HF_HOME=/opt/hf
+RUN python -c "from transformers import AutoConfig, AutoModel; \
+    AutoConfig.from_pretrained('facebook/wav2vec2-xls-r-300m'); \
+    AutoModel.from_pretrained('facebook/wav2vec2-xls-r-300m')"
+
+# Bake the deployed v9c detector + sibling config.json (loader reads model_name
+# from it). XLS_R_AASIST_PATH points the registry straight at the checkpoint.
+COPY models/xls_r_aasist.pt models/config.json /app/models/
+
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    XLS_R_AASIST_PATH=/app/models/xls_r_aasist.pt
+
+EXPOSE 8000
+
+# --proxy-headers so rate limiting keys on the real client IP behind the nginx.
+CMD ["uvicorn", "voiceguard.api.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--proxy-headers", "--forwarded-allow-ips", "*"]

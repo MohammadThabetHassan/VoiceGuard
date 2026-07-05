@@ -1,0 +1,66 @@
+# Portable, self-contained VoiceGuard stack. Everything the detector needs is
+# baked into the backend image (see Dockerfile.portable) — no host mounts, no
+# internet required at run time. On a new machine:
+#
+#   docker compose -f docker-compose.portable.yml up --build   # first time (needs net)
+#   # then open http://localhost:8080
+#
+# To move it fully offline (no rebuild on the target), save the built images:
+#   docker compose -f docker-compose.portable.yml build
+#   docker save voiceguard-backend:portable voiceguard-frontend:portable | gzip > voiceguard-images.tar.gz
+#   # on the target:  gunzip -c voiceguard-images.tar.gz | docker load
+#   #                 docker compose -f docker-compose.portable.yml up   (no --build)
+#
+# The stack is published on :8080 so it never collides with a dev server on :80
+# or the live uvicorn on :8000. Change the nginx `ports` mapping to taste.
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.portable
+    image: voiceguard-backend:portable
+    environment:
+      # The app refuses to boot on the default SECRET_KEY unless VG_ENV is not
+      # production. Set a real SECRET_KEY (and VG_ENV=production) via .env to
+      # harden the deployment.
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-changeme-in-production}
+      - VG_ENV=${VG_ENV:-development}
+      - PDPL_MAX_AGE_SECONDS=${PDPL_MAX_AGE_SECONDS:-60}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+    # Internal only — reached via the nginx proxy, not published to the host, so
+    # it can't clash with the live production uvicorn on :8000.
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: voiceguard-frontend:portable
+    expose:
+      - "80"
+    depends_on:
+      - backend
+
+  # Single entry point: serves the SPA and proxies /api + /ws to the backend.
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+      - frontend
