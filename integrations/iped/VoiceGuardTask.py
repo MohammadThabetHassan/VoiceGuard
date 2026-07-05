@@ -30,8 +30,11 @@ class VoiceGuardTask:
         return {
             "enabled": os.environ.get("VOICEGUARD_IPED_ENABLED", "true").lower() == "true",
             "api": os.environ.get("VOICEGUARD_API", "http://127.0.0.1:8000").rstrip("/"),
-            "user": os.environ.get("VOICEGUARD_USER", "admin"),
-            "password": os.environ.get("VOICEGUARD_PASSWORD", "voiceguard2026"),
+            # Credentials come from the environment (set VOICEGUARD_USER /
+            # VOICEGUARD_PASSWORD, e.g. via the run wrapper). The placeholder
+            # default is intentionally NOT a real password — override it.
+            "user": os.environ.get("VOICEGUARD_USER", "analyst"),
+            "password": os.environ.get("VOICEGUARD_PASSWORD", "CHANGE_ME"),
             "timeout": float(os.environ.get("VOICEGUARD_TIMEOUT", "30")),
             "logfile": os.environ.get("VOICEGUARD_IPED_LOG", ""),
         }
