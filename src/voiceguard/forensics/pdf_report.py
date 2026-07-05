@@ -47,6 +47,7 @@ def generate_report(
         PDF bytes.
     """
     from xml.sax.saxutils import escape as _xml_escape
+
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf,

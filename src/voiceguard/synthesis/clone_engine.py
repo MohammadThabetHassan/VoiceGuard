@@ -61,7 +61,7 @@ class CloneEngine(SynthEngine):
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=180) as resp:
+            with urllib.request.urlopen(req, timeout=180) as resp:  # noqa: S310  # nosec B310
                 if resp.status != 200:
                     return False
         except Exception:

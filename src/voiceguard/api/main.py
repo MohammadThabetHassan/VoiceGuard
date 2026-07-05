@@ -564,7 +564,9 @@ def _explain_occlusion(
         return None
 
 
-def _detect_hf_array(audio: np.ndarray, sr: int, model_key: str = "wav2vec2_spoof") -> tuple[str, float]:
+def _detect_hf_array(
+    audio: np.ndarray, sr: int, model_key: str = "wav2vec2_spoof"
+) -> tuple[str, float]:
     """Score a raw waveform with a HuggingFace anti-spoofing detector."""
     detector = registry.load(model_key)
     if detector is None:
@@ -624,9 +626,7 @@ def _explain_ssl_fast(path: str, model_key: str) -> ExplanationResult | None:
 
 _BEDROCK_KEY = os.environ.get("VG_BEDROCK_API_KEY", "").strip()
 _BEDROCK_REGION = os.environ.get("VG_BEDROCK_REGION", "us-east-1")
-_BEDROCK_MODEL = os.environ.get(
-    "VG_BEDROCK_MODEL", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
-)
+_BEDROCK_MODEL = os.environ.get("VG_BEDROCK_MODEL", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
 
 _MODEL_HUMAN = {
     "xls_r_aasist": "XLS-R-300M + AASIST (the v9c production detector)",
@@ -655,10 +655,13 @@ def _llm_narrative(
     import urllib.request
 
     fake_p = confidence if label == "fake" else 1.0 - confidence
-    moments = ", ".join(
-        f"{s.start_s:.1f}–{s.end_s:.1f}s (weight {s.importance:.2f})"
-        for s in explanation.top_segments[:4]
-    ) or "no single dominant window; the signal is spread across the clip"
+    moments = (
+        ", ".join(
+            f"{s.start_s:.1f}–{s.end_s:.1f}s (weight {s.importance:.2f})"
+            for s in explanation.top_segments[:4]
+        )
+        or "no single dominant window; the signal is spread across the clip"
+    )
     detector = _MODEL_HUMAN.get(model_key, model_key)
     facts = (
         f"Detector: {detector}.\n"
@@ -688,7 +691,7 @@ def _llm_narrative(
     ).encode()
     model_esc = urllib.parse.quote(_BEDROCK_MODEL, safe="")
     url = f"https://bedrock-runtime.{_BEDROCK_REGION}.amazonaws.com/model/{model_esc}/converse"
-    req = urllib.request.Request(
+    req = urllib.request.Request(  # noqa: S310  # nosec B310  (fixed https Bedrock URL)
         url,
         data=body,
         headers={
@@ -697,7 +700,7 @@ def _llm_narrative(
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310  # nosec B310
             data = json.loads(resp.read().decode())
         parts = data["output"]["message"]["content"]
         text = " ".join(p.get("text", "") for p in parts).strip()
