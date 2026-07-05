@@ -36,6 +36,17 @@ def _load_classical(path: Path) -> Any:
     return ClassicalDetector.from_file(str(path))
 
 
+def _load_hf_spoof(model_id: str) -> Callable[[Path | None], Any]:
+    """Loader for a HuggingFace Hub anti-spoofing model (no local checkpoint)."""
+
+    def _loader(_path: Path | None = None) -> Any:
+        from voiceguard.models.hf_spoof import HFSpoofDetector
+
+        return HFSpoofDetector(model_id)
+
+    return _loader
+
+
 def _load_dsfnet(path: Path) -> Any:
     import torch
 
@@ -138,12 +149,21 @@ def _load_ssl_aasist(model_name: str) -> Callable[[Path], Any]:
 
 
 # Registry definition: key → {env, loader, discover_subdir}
+# A "hub" entry loads a HuggingFace model (no local checkpoint) and is always
+# reported available.
 _REGISTRY_DEF: dict[str, dict] = {
     "classical": {
         "env": "CLASSICAL_MODEL_PATH",
         "loader": _load_classical,
         "discover": "classical",
         "ext": ".pkl",
+    },
+    # Pretrained wav2vec2-large anti-spoofing detector from the HuggingFace Hub.
+    # Default working detector when the production v9c SSL checkpoint is absent —
+    # it genuinely separates real speech from TTS / voice clones.
+    "wav2vec2_spoof": {
+        "hub": "alexandreacff/wav2vec2-large-ft-fake-detection",
+        "loader": _load_hf_spoof("alexandreacff/wav2vec2-large-ft-fake-detection"),
     },
     "dsfnet": {"env": "DSFNET_MODEL_PATH", "loader": _load_dsfnet, "discover": "dsfnet"},
     "dsfnet_v2": {
@@ -197,6 +217,8 @@ class ModelRegistry:
 
     def _resolve_path(self, key: str) -> Path | None:
         defn = _REGISTRY_DEF.get(key, {})
+        if "hub" in defn:  # hub models have no local checkpoint path
+            return None
         env_val = os.environ.get(defn.get("env", ""), "")
         if env_val:
             p = Path(env_val)
@@ -214,6 +236,15 @@ class ModelRegistry:
             defn = _REGISTRY_DEF.get(key)
             if defn is None:
                 return None
+            if "hub" in defn:  # HuggingFace model — no checkpoint file to resolve
+                try:
+                    model = defn["loader"](None)
+                    self._cache[key] = model
+                    return model
+                except Exception:
+                    logger.exception("Failed to load hub model '%s'", key)
+                    self._cache[key] = None
+                    return None
             path = self._resolve_path(key)
             if path is None:
                 self._cache[key] = None
@@ -238,7 +269,14 @@ class ModelRegistry:
     def status(self) -> dict[str, dict]:
         """Return availability status for all registered model keys."""
         result = {}
-        for key in _REGISTRY_DEF:
+        for key, defn in _REGISTRY_DEF.items():
+            if "hub" in defn:  # hub models are always available (pulled on demand)
+                result[key] = {
+                    "available": True,
+                    "loaded": key in self._cache and self._cache[key] is not None,
+                    "path": defn["hub"],
+                }
+                continue
             path = self._resolve_path(key)
             result[key] = {
                 "available": path is not None,

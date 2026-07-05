@@ -27,12 +27,46 @@ SYNTH_HOME = Path(os.environ.get("VG_SYNTH_HOME", str(Path.home() / ".voiceguard
 _WORKER = Path(__file__).with_name("clone_worker.py")
 _MIN_REF_SEC = 3.0
 
+# Ports of the optional persistent "warm" servers (clone_server.py, run via
+# systemd) that keep each model resident so a clone is seconds, not a cold
+# multi-GB reload. When a server isn't up, synthesize() falls back to the
+# one-shot subprocess worker.
+_WARM_PORTS = {"xtts": 8801, "indextts2": 8802}
+
 
 class CloneEngine(SynthEngine):
     """Generic subprocess-isolated cloning engine."""
 
     requires_reference = True
     worker_key: str = ""  # passed to clone_worker --engine
+
+    def _warm_generate(self, text: str, ref: Path, out_path: Path, language: str) -> bool:
+        """Try the persistent warm server; return True if it produced the clip.
+
+        A short connect timeout means a not-running server is detected fast and
+        we fall back to the subprocess; the read timeout covers real inference.
+        """
+        import json
+        import urllib.request
+
+        port = _WARM_PORTS.get(self.name)
+        if not port:
+            return False
+        body = json.dumps(
+            {"text": text, "ref": str(ref), "out": str(out_path), "language": language}
+        ).encode()
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/generate",
+            data=body,
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                if resp.status != 200:
+                    return False
+        except Exception:
+            return False
+        return out_path.exists() and out_path.stat().st_size > 0
 
     def _venv_python(self) -> Path:
         return SYNTH_HOME / self.name / "venv" / "bin" / "python"
@@ -62,6 +96,14 @@ class CloneEngine(SynthEngine):
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
             out_path = Path(tf.name)
         try:
+            # Fast path: the persistent warm server (model already resident).
+            if self._warm_generate(text, ref, out_path, language):
+                audio, sr = sf.read(str(out_path), dtype="float32", always_2d=False)
+                if getattr(audio, "ndim", 1) == 2:
+                    audio = audio.mean(axis=1)
+                return np.asarray(audio, dtype=np.float32), int(sr)
+
+            # Fallback: one-shot subprocess worker (cold model load each call).
             env = dict(os.environ)
             env["LD_LIBRARY_PATH"] = "/tmp/nvml_fix:" + env.get("LD_LIBRARY_PATH", "")  # noqa: S108  # nosec B108
             env["COQUI_TOS_AGREED"] = "1"  # accept XTTS non-commercial licence non-interactively

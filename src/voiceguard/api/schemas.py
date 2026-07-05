@@ -18,6 +18,7 @@ class ModelType(StrEnum):
     wav2vec2_large = "wav2vec2_large"
     xls_r = "xls_r"
     xls_r_aasist = "xls_r_aasist"
+    wav2vec2_spoof = "wav2vec2_spoof"
 
 
 class AttributionSegment(BaseModel):
@@ -35,6 +36,13 @@ class ExplanationResult(BaseModel):
         ..., description="Per-frame importance (10ms bins, normalised 0–1)"
     )
     top_segments: list[AttributionSegment] = Field(..., description="Top suspicious time windows")
+    narrative: str | None = Field(
+        None,
+        description=(
+            "Plain-language forensic summary of the verdict, generated from the "
+            "detector's own numbers by an LLM (null if unavailable)."
+        ),
+    )
 
 
 class DetectionResult(BaseModel):

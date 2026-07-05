@@ -148,13 +148,19 @@ async def test_health():
 
 
 @pytest.mark.asyncio
-async def test_explain_classical_returns_501(auth_client, wav_bytes):
+async def test_explain_classical_uses_occlusion(auth_client, wav_bytes):
     resp = await auth_client.post(
         "/explain",
         files={"file": ("test.wav", wav_bytes, "audio/wav")},
         params={"model": "classical"},
     )
-    assert resp.status_code == 501
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["method"] == "occlusion"
+    assert body["baseline"] == "silence"
+    assert body["frame_duration_ms"] == 10
+    assert body["attribution_frames"]
+    assert all(0.0 <= f <= 1.0 for f in body["attribution_frames"])
 
 
 @pytest.mark.asyncio

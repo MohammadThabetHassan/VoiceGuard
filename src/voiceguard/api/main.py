@@ -87,7 +87,20 @@ from voiceguard.models.registry import registry  # noqa: E402
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     check_production_security()  # refuse to start with a default SECRET_KEY in production
+    # Use all CPU cores for inference (torch defaults to physical cores, leaving
+    # vCPUs idle on cloud boxes) — roughly halves detection latency here.
+    try:
+        import torch
+
+        torch.set_num_threads(int(os.environ.get("VG_TORCH_THREADS", os.cpu_count() or 4)))
+    except Exception:
+        logger.warning("could not set torch thread count", exc_info=True)
     registry.preload()  # loads any model whose env-var is set at startup
+    # Warm the default hub anti-spoofing detector so the first /detect isn't slow.
+    try:
+        registry.load("wav2vec2_spoof")
+    except Exception:
+        logger.warning("could not warm wav2vec2_spoof detector", exc_info=True)
     _sweep_media_dir()  # remove stale media whose TTL timers were lost on restart
     yield
 
@@ -373,6 +386,25 @@ def _guard_audio_quality(wav) -> None:
         )
 
 
+def _model_device(model) -> str:
+    """Ensure *model* is on the GPU when one is available; return its device str.
+
+    SSL checkpoints load onto CPU (map_location='cpu'); on a GPU box we move the
+    (cached) model onto the GPU once — subsequent calls are a no-op — so the
+    forward pass runs on the A10G instead of the CPU.
+    """
+    import torch
+
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    try:
+        p = next(model.parameters(), None)
+        if p is not None and p.device.type != dev:
+            model.to(dev)
+    except Exception:
+        return "cpu"
+    return dev
+
+
 def _ssl_fake_prob(model, wav, model_key: str) -> float:
     """One forward pass over `wav` (1, T) from its natural start; returns fake-prob.
 
@@ -386,12 +418,14 @@ def _ssl_fake_prob(model, wav, model_key: str) -> float:
     """
     import torch
 
+    device = _model_device(model)  # move to GPU once (cached), else CPU
     w = wav[..., : int(_SCORE_MAX_S * 16000)].squeeze(0)
     if model_key not in _SSL_KEYS:
         w = w[..., :_WIN]  # research CNNs are fixed-length 3s models
     if w.shape[-1] < _WIN:
         w = torch.nn.functional.pad(w, (0, _WIN - w.shape[-1]))
     inp = w.unsqueeze(0) if model_key in _SSL_KEYS else w.reshape(1, 1, -1)
+    inp = inp.to(device)
     with torch.no_grad():
         return float(torch.softmax(model(inp), dim=-1)[0, 1])
 
@@ -464,6 +498,257 @@ def _explain_ssl(path: str, model_key: str) -> ExplanationResult | None:
     return _build_explanation(model, _first_window(_load_wav_mono16k(path)))
 
 
+def _explain_occlusion(
+    path: str, scorer, max_s: float = 10.0, n_seg_cap: int = 20
+) -> ExplanationResult | None:
+    """Occlusion attribution → ExplanationResult, for non-differentiable models.
+
+    Each time segment is silenced in turn and the clip re-scored via *scorer*
+    (a callable ``(audio, sr) -> (label, confidence)``); a segment's importance
+    is how much its removal moves the fake-probability away from the predicted
+    class. Output matches the Integrated-Gradients shape (normalised 10ms frames
+    + top segments) so clients render both identically. ``max_s`` / ``n_seg_cap``
+    bound the number of re-scoring passes — keep them small for slow SSL models.
+    """
+    try:
+        from voiceguard.api.schemas import AttributionSegment
+
+        data, sr = _read_audio(path)
+        data = (data / (np.max(np.abs(data)) + 1e-8)).astype(np.float32)
+        data = data[: int(max_s * sr)]  # bound re-scoring cost
+        duration = len(data) / sr
+
+        def fake_logit(x: np.ndarray) -> float:
+            # Logit-space scoring: classifier probabilities saturate near 0/1,
+            # flattening per-segment differences that the raw evidence retains.
+            label, conf = scorer(x, sr)
+            p = np.clip(conf if label == "fake" else 1.0 - conf, 1e-7, 1 - 1e-7)
+            return float(np.log(p / (1.0 - p)))
+
+        base = fake_logit(data)
+        target_class = 1 if base >= 0 else 0
+        n_seg = min(n_seg_cap, max(6, int(duration / 0.25)))
+        seg_len = len(data) / n_seg
+        drops = np.zeros(n_seg)
+        for i in range(n_seg):
+            occluded = data.copy()
+            occluded[int(i * seg_len) : int((i + 1) * seg_len)] = 0.0
+            p = fake_logit(occluded)
+            drops[i] = (base - p) if target_class == 1 else (p - base)
+        drops = np.maximum(drops, 0.0)
+        if drops.max() > 0:
+            drops = drops / drops.max()
+
+        seg_dur = duration / n_seg
+        n_frames = int(duration * 100)
+        idx = np.minimum((np.arange(n_frames) * 0.01 / seg_dur).astype(int), n_seg - 1)
+        top = [
+            AttributionSegment(
+                start_s=round(i * seg_dur, 2),
+                end_s=round((i + 1) * seg_dur, 2),
+                importance=round(float(drops[i]), 4),
+            )
+            for i in np.argsort(drops)[::-1][:5]
+            if drops[i] > 0
+        ]
+        return ExplanationResult(
+            method="occlusion",
+            baseline="silence",
+            target_class=target_class,
+            frame_duration_ms=10,
+            attribution_frames=[round(float(f), 4) for f in drops[idx]],
+            top_segments=top,
+        )
+    except Exception:
+        logger.warning("occlusion attribution failed", exc_info=True)
+        return None
+
+
+def _detect_hf_array(audio: np.ndarray, sr: int, model_key: str = "wav2vec2_spoof") -> tuple[str, float]:
+    """Score a raw waveform with a HuggingFace anti-spoofing detector."""
+    detector = registry.load(model_key)
+    if detector is None:
+        return "real", 0.5
+    return detector.predict_array(audio, sr)
+
+
+def _detect_hf(path: str, model_key: str = "wav2vec2_spoof") -> tuple[str, float]:
+    """Run HuggingFace anti-spoofing detection on a file. Returns (label, conf)."""
+    data, sr = _read_audio(path)
+    return _detect_hf_array(data, sr, model_key)
+
+
+def _explain_classical(path: str) -> ExplanationResult | None:
+    """Occlusion attribution using the classical detector."""
+    return _explain_occlusion(path, _detect_classical_array)
+
+
+def _explain_hf(path: str, model_key: str = "wav2vec2_spoof") -> ExplanationResult | None:
+    """Occlusion attribution using a HuggingFace anti-spoofing detector."""
+    return _explain_occlusion(path, lambda a, s: _detect_hf_array(a, s, model_key))
+
+
+def _ssl_array_scorer(model_key: str):
+    """Scorer ``(audio, sr) -> (label, conf)`` backed by an SSL detector, for occlusion."""
+    import torch
+    import torchaudio
+
+    model = registry.load(model_key)
+
+    def scorer(audio: np.ndarray, sr: int) -> tuple[str, float]:
+        if model is None:
+            return "real", 0.5
+        w = torch.as_tensor(np.asarray(audio, dtype=np.float32)).reshape(1, -1)
+        if sr != 16000:
+            w = torchaudio.functional.resample(w, sr, 16000)
+        fp = _ssl_fake_prob(model, w, model_key)
+        return ("fake", fp) if fp >= 0.5 else ("real", 1.0 - fp)
+
+    return scorer
+
+
+def _explain_ssl_fast(path: str, model_key: str) -> ExplanationResult | None:
+    """Fast occlusion attribution for a (slow, 300M-param) SSL detector.
+
+    Integrated Gradients back-propagates through the SSL model ~25× and takes
+    over a minute on CPU. Occlusion over a short window is forward-only and an
+    order of magnitude faster, while giving the same per-moment picture.
+    """
+    if registry.load(model_key) is None:
+        return None
+    # Score ~3s in 6 silence-one-window passes → seconds, not minutes.
+    return _explain_occlusion(path, _ssl_array_scorer(model_key), max_s=3.0, n_seg_cap=6)
+
+
+# ── LLM narrative (optional, via Amazon Bedrock) ────────────────────────────────
+
+_BEDROCK_KEY = os.environ.get("VG_BEDROCK_API_KEY", "").strip()
+_BEDROCK_REGION = os.environ.get("VG_BEDROCK_REGION", "us-east-1")
+_BEDROCK_MODEL = os.environ.get(
+    "VG_BEDROCK_MODEL", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+)
+
+_MODEL_HUMAN = {
+    "xls_r_aasist": "XLS-R-300M + AASIST (the v9c production detector)",
+    "wav2vec2_spoof": "a wav2vec2 anti-spoofing model",
+    "classical": "the classical MFCC baseline",
+}
+
+
+def _llm_narrative(
+    label: str,
+    confidence: float,
+    model_key: str,
+    explanation: ExplanationResult,
+    seconds_analyzed: float | None,
+) -> str | None:
+    """Turn the detector's own numbers into a short plain-language forensic note.
+
+    Calls Amazon Bedrock (Claude Haiku) with a bearer API key over stdlib HTTP —
+    no boto3, no SigV4. Returns None on any failure or when no key is configured,
+    so the /explain and /detect paths degrade gracefully and never break.
+    """
+    if not _BEDROCK_KEY:
+        return None
+    import json
+    import urllib.parse
+    import urllib.request
+
+    fake_p = confidence if label == "fake" else 1.0 - confidence
+    moments = ", ".join(
+        f"{s.start_s:.1f}–{s.end_s:.1f}s (weight {s.importance:.2f})"
+        for s in explanation.top_segments[:4]
+    ) or "no single dominant window; the signal is spread across the clip"
+    detector = _MODEL_HUMAN.get(model_key, model_key)
+    facts = (
+        f"Detector: {detector}.\n"
+        f"Verdict: {label.upper()} (fake-probability {fake_p:.1%}, confidence {confidence:.1%}).\n"
+        f"Seconds of audio analysed: {seconds_analyzed or 'whole clip'}.\n"
+        f"Attribution method: {explanation.method}.\n"
+        f"Most influential moments: {moments}."
+    )
+    system = (
+        "You are a forensic audio analyst assistant for VoiceGuard, an AI voice "
+        "deepfake detector. Given ONLY the detector's numeric output, write a short, "
+        "accurate, plain-language explanation an examiner can read aloud. 2–3 "
+        "sentences, max ~60 words. Explain what the verdict means and what the "
+        "attribution moments indicate (which parts of audio most drove the decision). "
+        "These detectors flag statistical artefacts of synthesis (unnatural spectral "
+        "detail, prosody, phase) that are inaudible — do NOT invent specific "
+        "acoustic measurements, transcripts, or claims you were not given. Be measured: "
+        "this is decision-support, not proof. Plain text only — no markdown, no "
+        "asterisks, no bullet points, no preamble."
+    )
+    body = json.dumps(
+        {
+            "system": [{"text": system}],
+            "messages": [{"role": "user", "content": [{"text": facts}]}],
+            "inferenceConfig": {"maxTokens": 200, "temperature": 0.2},
+        }
+    ).encode()
+    model_esc = urllib.parse.quote(_BEDROCK_MODEL, safe="")
+    url = f"https://bedrock-runtime.{_BEDROCK_REGION}.amazonaws.com/model/{model_esc}/converse"
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {_BEDROCK_KEY}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+        parts = data["output"]["message"]["content"]
+        text = " ".join(p.get("text", "") for p in parts).strip()
+        text = text.replace("**", "").replace("*", "").strip()  # belt-and-braces: no markdown
+        return text or None
+    except Exception:
+        logger.warning("bedrock narrative failed", exc_info=True)
+        return None
+
+
+def _attach_narrative(
+    explanation: ExplanationResult | None,
+    label: str,
+    confidence: float,
+    model_key: str,
+    seconds_analyzed: float | None,
+) -> ExplanationResult | None:
+    """Populate explanation.narrative in place (best-effort)."""
+    if explanation is None:
+        return None
+    explanation.narrative = _llm_narrative(
+        label, confidence, model_key, explanation, seconds_analyzed
+    )
+    return explanation
+
+
+def _narrative_from_record(record: dict) -> str | None:
+    """Generate a narrative from a stored detection record (no attribution segments).
+
+    Used by /forensic/report when the detection wasn't run with explain=true, so
+    every report can still carry an AI analysis. Builds a minimal explanation
+    (empty segments → the helper's 'spread across the clip' phrasing) and calls
+    the same Bedrock path.
+    """
+    stub = ExplanationResult(
+        method="verdict summary",
+        baseline="n/a",
+        target_class=1 if record["label"] == "fake" else 0,
+        frame_duration_ms=10,
+        attribution_frames=[],
+        top_segments=[],
+    )
+    return _llm_narrative(
+        record["label"],
+        float(record["confidence"]),
+        str(record["model"]),
+        stub,
+        record.get("seconds_analyzed"),
+    )
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
@@ -512,18 +797,24 @@ async def detect(
 
     t0 = time.perf_counter()
 
-    if model == ModelType.classical:
+    if model == ModelType.wav2vec2_spoof:
+        label, confidence = _detect_hf(path, str(model))
+        seconds_analyzed = audio_info.get("duration_s")
+        explanation = _explain_hf(path, str(model)) if explain else None
+    elif model == ModelType.classical:
         label, confidence = _detect_classical(path)
         seconds_analyzed = audio_info.get("duration_s")
-        explanation = None
+        explanation = _explain_classical(path) if explain else None
     else:
         # Load the waveform once and share it between detection and attribution.
         wav = _load_wav_mono16k(path)
         label, confidence, seconds_analyzed = _detect_ssl_tensor(wav, str(model))
-        explanation = None
-        if explain:
-            model_obj = registry.load(str(model))
-            explanation = _build_explanation(model_obj, _first_window(wav)) if model_obj else None
+        # Fast forward-only occlusion instead of ~25× backprop Integrated Gradients
+        # (which takes >60s on CPU for a 300M-param SSL model).
+        explanation = _explain_ssl_fast(path, str(model)) if explain else None
+
+    if explanation is not None:
+        _attach_narrative(explanation, label, confidence, str(model), seconds_analyzed)
 
     latency_ms = (time.perf_counter() - t0) * 1000
 
@@ -540,6 +831,7 @@ async def detect(
         seconds_analyzed=seconds_analyzed,
         audio_info=audio_info,
         app_version=__version__,
+        narrative=explanation.narrative if explanation is not None else None,
     )
     logger.info(
         "detect user=%s model=%s verdict=%s conf=%.3f analyzed_s=%s latency_ms=%.1f",
@@ -776,6 +1068,10 @@ async def forensic_report(
         "checkpoint_sha256": registry.fingerprint(record["model"]),
     }
 
+    # AI forensic narrative: reuse the one captured at detect time (richer — it
+    # had attribution segments), else generate one now from the verified record.
+    narrative = record.get("narrative") or _narrative_from_record(record)
+
     # uuid4, not a timestamp: /media is unauthenticated, so names must be unguessable
     fname = f"report_{body.audio_hash[:12]}_{uuid.uuid4().hex}.pdf"
     out_path = MEDIA_DIR / fname
@@ -788,6 +1084,7 @@ async def forensic_report(
             output_path=out_path,
             audio_meta=audio_meta or None,
             model_meta=model_meta,
+            narrative=narrative,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Report generation failed: {exc}") from exc
@@ -1068,26 +1365,33 @@ async def explain(
     model: ModelType = ModelType.xls_r_aasist,
     _user: str = Depends(get_current_user),
 ):
-    """Return Integrated Gradients attribution for an uploaded audio file.
+    """Return attribution for an uploaded audio file.
 
     Shows which time segments (10ms bins) drove the model's fake/real decision.
-    Only SSL models (wav2vec2, wavlm_base_plus, wav2vec2_large, aasist, dsfnet*)
-    support attribution; classical model returns 501.
+    SSL models (wav2vec2, wavlm_base_plus, wav2vec2_large, aasist, dsfnet*) use
+    Integrated Gradients; the classical model uses occlusion (silence one
+    segment at a time and measure the probability drop).
     """
-    if model == ModelType.classical:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Classical model does not support attribution. Use an SSL model.",
-        )
     path, _ = await save_upload(file)
     background_tasks.add_task(pdpl_auto_delete, path)
 
-    explanation = _explain_ssl(path, str(model))
+    seconds_analyzed: float | None = None
+    if model == ModelType.wav2vec2_spoof:
+        label, confidence = _detect_hf(path, str(model))
+        explanation = _explain_hf(path, str(model))
+    elif model == ModelType.classical:
+        label, confidence = _detect_classical(path)
+        explanation = _explain_classical(path)
+    else:
+        wav = _load_wav_mono16k(path)
+        label, confidence, seconds_analyzed = _detect_ssl_tensor(wav, str(model))
+        explanation = _explain_ssl_fast(path, str(model))
     if explanation is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Model '{model}' checkpoint not found or attribution failed.",
         )
+    _attach_narrative(explanation, label, confidence, str(model), seconds_analyzed)
     return explanation
 
 
@@ -1132,19 +1436,28 @@ def _detect_classical_array(audio: np.ndarray, sr: int) -> tuple[str, float]:
 def _detect_ssl_array(
     audio: np.ndarray, sr: int, model_key: str = "xls_r_aasist"
 ) -> tuple[str, float, str]:
-    """Score a raw audio window with the SSL production detector (live streaming).
+    """Score a raw audio window with the production detector (live streaming).
 
     Returns (label, confidence, model) where `model` names which detector actually
-    scored the window: the SSL key, "classical" (SSL checkpoint unavailable), or
+    scored the window: the SSL/hub key, "classical" (checkpoint unavailable), or
     "stub" (no detector at all) — so the client knows what produced the verdict.
     """
     import torch
     import torchaudio
 
+    # HuggingFace hub anti-spoofing detector (default live detector when the
+    # production SSL checkpoint is not staged) — scored from a raw array.
+    from voiceguard.models.registry import _REGISTRY_DEF
+
+    if "hub" in _REGISTRY_DEF.get(model_key, {}):
+        label, confidence = _detect_hf_array(audio, sr, model_key)
+        return label, confidence, model_key
+
     model = registry.load(model_key)
     if model is None:
-        label, confidence = _detect_classical_array(audio, sr)
-        used = "classical" if registry.load("classical") is not None else "stub"
+        # Prefer the working hub detector over the degenerate classical baseline.
+        label, confidence = _detect_hf_array(audio, sr, "wav2vec2_spoof")
+        used = "wav2vec2_spoof" if registry.load("wav2vec2_spoof") is not None else "stub"
         logger.info("stream: %s unavailable, scored with %s", model_key, used)
         return label, confidence, used
     wav = torch.as_tensor(np.asarray(audio, dtype=np.float32)).reshape(1, -1)
