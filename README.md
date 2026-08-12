@@ -267,6 +267,7 @@ ruff check src/ tests/
 | [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) | Honest platform limitations (streaming, latency, scope) |
 | [SYNTHESIS_ENGINES.md](docs/SYNTHESIS_ENGINES.md) | Kokoro / XTTS v2 / IndexTTS-2 engine guide |
 | [REPRODUCIBILITY_MANIFEST.md](docs/REPRODUCIBILITY_MANIFEST.md) | Fixed environment manifest for all reported results |
+| [EVALUATION_METADATA.md](docs/EVALUATION_METADATA.md) | Dataset identity, artifact hashes, commands, result fields, and licensing boundaries |
 
 ## 🛠️ Tech stack
 
