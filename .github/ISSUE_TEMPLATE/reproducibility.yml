@@ -1,0 +1,73 @@
+name: Reproducibility report
+description: Report a result that cannot be reproduced from the documented protocol
+title: "[Reproducibility] "
+labels:
+  - reproducibility
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for a reproducibility failure or an evidence mismatch. Do not include credentials, private data, or restricted dataset files.
+
+  - type: input
+    id: checkpoint
+    attributes:
+      label: Checkpoint or model identifier
+      description: Include the exact checkpoint lineage or version.
+      placeholder: xlsr_aasist_v9c
+    validations:
+      required: true
+
+  - type: input
+    id: dataset
+    attributes:
+      label: Dataset and split
+      description: State the dataset release, split, and sample count.
+      placeholder: ASVspoof 2021 LA eval, 181566 trials
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Reproduction command
+      description: Paste the exact command and relevant environment details.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: Link the canonical result or documentation record and describe the expected output.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Describe the observed output, error, or metric difference.
+    validations:
+      required: true
+
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Evidence and artifacts
+      description: Provide safe links to logs, hashes, manifests, or generated result files. Do not upload restricted data or credentials.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Triage checks
+      options:
+        - label: I checked the reproducibility manifest and evaluation protocol.
+          required: true
+        - label: I removed credentials, personal data, and restricted dataset content.
+          required: true
+        - label: I checked the upstream dataset and model license terms before attaching artifacts.
+          required: true
