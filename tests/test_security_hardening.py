@@ -88,6 +88,28 @@ def test_sniff_accepts_all_advertised_formats():
 
 
 @pytest.mark.asyncio
+async def test_detect_rejects_empty_upload_415(auth_client):
+    resp = await auth_client.post(
+        "/detect",
+        files={"file": ("empty.wav", b"", "audio/wav")},
+    )
+    assert resp.status_code == 415
+    assert "Empty upload" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_detect_normalizes_unsupported_filename_extension(auth_client):
+    """A supported audio MIME type must not be handed to the decoder with an unknown suffix."""
+    resp = await auth_client.post(
+        "/detect",
+        params={"model": "classical"},
+        files={"file": ("recording.bin", make_wav_bytes(), "audio/wav")},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["model"] == "classical"
+
+
+@pytest.mark.asyncio
 async def test_detect_duration_cap_413(auth_client, monkeypatch):
     monkeypatch.setattr(main_mod, "MAX_AUDIO_SECONDS", 1.0)
     resp = await auth_client.post(

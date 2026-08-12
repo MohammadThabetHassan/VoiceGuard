@@ -13,8 +13,6 @@ Endpoints:
 Security: JWT auth, slowapi 60 req/min, PDPL auto-delete ≤60s.
 """
 
-from __future__ import annotations
-
 import hashlib
 import logging
 import os
@@ -182,6 +180,14 @@ ACCEPTED_CONTENT_TYPES = {
     "application/ogg",
 }
 ACCEPTED_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg", ".oga"}
+CONTENT_TYPE_SUFFIXES = {
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/mpeg": ".mp3",
+    "audio/flac": ".flac",
+    "audio/ogg": ".ogg",
+    "application/ogg": ".ogg",
+}
 MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100MB
 _UPLOAD_CHUNK = 1024 * 1024  # 1MB
 # Longest clip /detect will accept. libsndfile decode + one forward pass over up
@@ -223,6 +229,8 @@ async def save_upload(upload: UploadFile) -> tuple[str, str]:
 
     suffix = (Path(upload.filename or "audio.wav").suffix or ".wav").lower()
     ctype = (upload.content_type or "").split(";")[0].strip().lower()
+    if suffix not in ACCEPTED_SUFFIXES:
+        suffix = CONTENT_TYPE_SUFFIXES.get(ctype, suffix)
     if ctype not in ACCEPTED_CONTENT_TYPES and suffix not in ACCEPTED_SUFFIXES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -248,7 +256,7 @@ async def save_upload(upload: UploadFile) -> tuple[str, str]:
                 total += len(chunk)
                 if total > MAX_FILE_SIZE_BYTES:
                     raise HTTPException(
-                        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                         detail=f"File exceeds {MAX_FILE_SIZE_BYTES // (1024 * 1024)}MB limit",
                     )
                 sha256.update(chunk)
@@ -284,7 +292,7 @@ def _probe_audio(path: str) -> dict:
         ) from exc
     if info.duration > MAX_AUDIO_SECONDS:
         raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=(
                 f"Audio is {info.duration:.0f}s long; the analysis limit is "
                 f"{MAX_AUDIO_SECONDS:.0f}s. Trim the clip or raise VG_MAX_AUDIO_SECONDS."
@@ -757,7 +765,10 @@ def _narrative_from_record(record: dict) -> str | None:
 
 @app.post("/token", response_model=TokenResponse, tags=["auth"])
 @limiter.limit("5/minute")
-async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
+async def login(
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(OAuth2PasswordRequestForm),
+):
     if not authenticate_user(form_data.username, form_data.password):
         logger.info("login failed for user=%r", form_data.username)
         raise HTTPException(
