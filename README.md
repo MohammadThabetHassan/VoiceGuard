@@ -110,6 +110,12 @@ gap *and* catches clones + premium TTS, so it's the best model overall.
 > and the hard limits are *measured*, not hidden. See the full
 > [documentation index](#-documentation) below.
 
+### Evidence and license scope
+
+The headline results are not standalone claims. Start with [`docs/RESULTS_canonical.md`](docs/RESULTS_canonical.md) for the checkpoint identifier, dataset/protocol, confidence interval, and provenance record; use [`docs/EVAL_PROTOCOLS.md`](docs/EVAL_PROTOCOLS.md) for the exact evaluation path; and use [`docs/REPRODUCIBILITY_MANIFEST.md`](docs/REPRODUCIBILITY_MANIFEST.md) to reproduce the pinned environment. The deployment decision for v9c is documented in the model-lineage table above: the lowest official EER was not selected because it failed the clone- and premium-TTS-robustness requirement.
+
+The repository code and original documentation are released under the [Apache License 2.0](LICENSE). That license does not automatically relicense third-party checkpoints, datasets, pretrained backbones, synthesis engines, fonts, images, or other bundled material. Check the relevant upstream license and attribution terms before redistributing those components or publishing a derived model. Dataset access and evaluation use must also follow the terms of the respective dataset providers.
+
 ## 🏗️ Architecture
 
 ```mermaid
@@ -320,4 +326,4 @@ repository, which post-date the submission. If you cite the accepted work:
 
 ## 📄 License
 
-[Apache License 2.0](LICENSE).
+The original VoiceGuard source code and documentation in this repository are licensed under the [Apache License 2.0](LICENSE). Third-party models, datasets, pretrained weights, synthesis engines, fonts, images, and other external assets remain subject to their own licenses and attribution requirements; see the linked provenance and documentation records before redistribution.
