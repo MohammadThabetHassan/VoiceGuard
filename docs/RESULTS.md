@@ -20,7 +20,7 @@ eval EER was re-verified to four decimals on 2026-06-10: **2.84% [95% CI 2.67–
 | XLS-R + AASIST — v8 (EER-opt) | 2.49% | 9.91% | ✗ Kokoro→62.5% | lowest official EER, weaker clones |
 | Wav2Vec2-large | 3.09% [2.94–3.27] | 7.07% | — | baseline |
 | WavLM-base-plus | 3.14% [2.92–3.33] | 8.52% | — | baseline |
-| WavLM-large | 2.29% [2.16–2.46] | 9.52% | — | baseline (clone coverage not measured) |
+| WavLM-large | 2.29% [2.16–2.46] | 9.52% | — | baseline (lowest official EER; no clone-coverage figure in the repo) |
 | XLS-R + AASIST (aug) | 2.65% [2.48–2.84] | 9.05% | — | baseline |
 | DSFNet-V2 / DSFNetTiny (edge) | — | 12.67% / 8.47%* | — | own dual-stream; *balanced-mirror EER |
 

@@ -281,7 +281,7 @@ ruff check src/ tests/
 - [x] Reproduce the official ASVspoof 2021 LA 2.61% EER
 - [x] True signed C2PA provenance on synthesized audio
 - [ ] Permanent hosted demo (live via Cloudflare Tunnel from June 2026; currently offline)
-- [x] Premium-TTS (ElevenLabs) hardening with a real-pass safety gate (v9c deployed: 95.8% held-out ElevenLabs-v3 at 96% real-pass, above the ≥90% gate; see [Results](#-results))
+- [x] Premium-TTS (ElevenLabs) hardening with a real-pass safety gate (v9c deployed: 95.8% held-out ElevenLabs-v3, 96% real-pass; see [Results](#-results))
 - [ ] Backbone adversarial fine-tuning for true PGD robustness
 - [ ] GADC (Gulf-Arabic Deepfake Corpus) + human perception study
 
