@@ -18,8 +18,10 @@ eval EER was re-verified to four decimals on 2026-06-10: **2.84% [95% CI 2.67–
 | XLS-R + AASIST — v7 (prior production) | 3.38% | 8.60% | ✓ all families ≥96.7% | robustness-first, superseded by v9c |
 | XLS-R + AASIST (Kokoro-parent) | 2.61% | 8.21% | ✗ misses IndexTTS-2 | EER-only headline checkpoint |
 | XLS-R + AASIST — v8 (EER-opt) | 2.49% | 9.91% | ✗ Kokoro→62.5% | lowest official EER, weaker clones |
-| Wav2Vec2-large | 3.09% | 7.07% | — | baseline |
-| WavLM-base-plus | 8.11% | — | — | baseline |
+| Wav2Vec2-large | 3.09% [2.94–3.27] | 7.07% | — | baseline |
+| WavLM-base-plus | 3.14% [2.92–3.33] | 8.52% | — | baseline |
+| WavLM-large | 2.29% [2.16–2.46] | 9.52% | — | baseline (lowest official EER; no clone-coverage figure in the repo) |
+| XLS-R + AASIST (aug) | 2.65% [2.48–2.84] | 9.05% | — | baseline |
 | DSFNet-V2 / DSFNetTiny (edge) | — | 12.67% / 8.47%* | — | own dual-stream; *balanced-mirror EER |
 
 Metrics: F1 ≈ 0.96, ROC-AUC ≈ 0.97. minDCF uses the corrected estimator
@@ -41,12 +43,25 @@ family plus premium TTS.
 v9c supersedes v7: same clone coverage, lower official EER, and it now also catches
 premium commercial TTS (ElevenLabs) that v7 only partly flagged.
 
+**Where the ElevenLabs-v3 figure comes from.** The 96% above is the v9c held-out
+ElevenLabs-v3 evaluation, rounded; the README Results table gives the unrounded
+**95.8%** (first recorded in commit `b394e62`, "unseen ElevenLabs-v3 95.8%").
+`scripts/clone_score_distributions.py` scores only the real / XTTS / IndexTTS-2
+families, and the per-clip ElevenLabs-v3 scores are not committed, so this row
+cannot yet be regenerated from the repository. Its clip count is not recorded
+either (95.8% is not a whole number of clips out of 100, so the "100/family" in
+the heading may not apply to this row).
+
 ## SM2026 classical baseline
 
 Enhanced+XGBoost on `osr_features.csv` (474 samples, 5-fold CV): **F1 = 0.9500**
 (published, IEEE SM2026).
 
 ## Out-of-distribution & real-world robustness
+
+_Historical: these are the figures for the checkpoint deployed at v1.0.0
+(`xlsr_aasist_realworld_v2`; see the CHANGELOG `[1.0.0]` entry), superseded by the
+v9c held-out results above._
 
 | Metric | Value |
 |--------|:-----:|
@@ -57,8 +72,10 @@ Enhanced+XGBoost on `osr_features.csv` (474 samples, 5-fold CV): **F1 = 0.9500**
 
 ## Edge
 
-DSFNetTiny (554K params) → ONNX INT8 **0.62 MB**, CPU p50 **30 ms** (size/latency
-validated; accuracy pending a trained tiny checkpoint).
+DSFNetTiny (554K params) → ONNX INT8 **0.62 MB**, CPU p50 **30 ms**, trained weights
+with **8.47% balanced-mirror EER** (not comparable to the official-eval EERs above).
+It is a separate model from the deployed v9c. The edge script's own benchmark
+(`edge/README.md`, NumPy mel front-end + ONNX on x86) reports p50 67.7 ms.
 
 ## Adversarial robustness (negative result)
 
@@ -66,6 +83,3 @@ The deployed model is fragile to PGD (ε=0.01): clean acc 90.7% → PGD acc 0%. 
 frozen-backbone head-only adversarial fine-tune did **not** confer PGD robustness
 and regressed real-world detection, so it was not promoted. True robustness needs
 backbone adversarial fine-tuning — future work.
-
-> **Honest note.** The deployed checkpoint is a real-world-robustness fine-tune of
-> the 2.61% Kokoro-hardened model; its ASVspoof EER was not separately benchmarked.
