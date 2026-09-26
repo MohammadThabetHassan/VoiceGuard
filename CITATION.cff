@@ -1,0 +1,54 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite it as below. The IEEE SM 2026 paper
+  covers the classical ensemble baseline, not the XLS-R + AASIST detector or
+  the full platform in this repository.
+type: software
+title: VoiceGuard
+abstract: >-
+  Real-time voice deepfake detection, synthesis watermarking, and vishing
+  defence.
+authors:
+  - family-names: Hassan
+    given-names: Mohammad Thabet
+    affiliation: Canadian University Dubai
+  - family-names: Al-Jazzeri
+    given-names: Fahad Sadek
+    affiliation: Canadian University Dubai
+  - family-names: Alameri
+    given-names: Ahmed Sami
+    affiliation: Canadian University Dubai
+repository-code: "https://github.com/MohammadThabetHassan/VoiceGuard"
+license: Apache-2.0
+preferred-citation:
+  type: conference-paper
+  title: >-
+    Lightweight Voice Deepfake Detection for Smart Mobility Using
+    Multi-Feature Ensemble Learning
+  authors:
+    - family-names: Hassan
+      given-names: Mohammad Thabet
+      affiliation: Canadian University Dubai
+    - family-names: Sadek
+      given-names: Fahad
+      affiliation: Canadian University Dubai
+    - family-names: Sami
+      given-names: Ahmed
+      affiliation: Canadian University Dubai
+    - family-names: Kolankeh
+      given-names: Arash Kermani
+      affiliation: Canadian University Dubai
+  collection-title: "2026 International Conference on Smart Mobility (SM)"
+  conference:
+    name: "2026 International Conference on Smart Mobility (SM)"
+    location: "Al Alamein City, Egypt"
+    date-start: "2026-05-11"
+    date-end: "2026-05-13"
+  publisher:
+    name: IEEE
+  year: 2026
+  month: 5
+  start: 1
+  end: 2
+  doi: 10.1109/SM69703.2026.11614145
+  url: "https://ieeexplore.ieee.org/document/11614145"

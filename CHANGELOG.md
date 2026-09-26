@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-05
+
+> **Version strings.** This release is tagged `v1.1.0`, but the in-code version
+> strings were not bumped: `pyproject.toml`, `frontend/package.json` and
+> `src/voiceguard/api/main.py` `__version__` (stamped into forensic PDFs as
+> `app_version`) still read `1.0.0`, and `src/voiceguard/__init__.py` reads `0.1.0`.
+
 ### Added
 - **OGG upload support.** `/detect`, `/explain`, `/watermark/verify` and the
   forensic path now accept OGG (Vorbis) uploads — magic-byte sniffed via the
@@ -121,6 +128,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `/ws/stream` (mic) now scores with the SSL production model (was classical),
   with graceful fallback.
+- **Explainability for the SSL models is now occlusion, not Integrated
+  Gradients.** `/detect?explain=true` and `/explain` silence each of 6 segments
+  of the first 3 s and re-score (forward-only), because Integrated Gradients
+  through the 300M-param SSL model took over a minute on CPU.
 
 ### Fixed
 - Corrected the spectral watermark's misleading "C2PA" docstring (it is the
@@ -203,4 +214,5 @@ and vishing-defence platform.
 - The ONNX export currently validates pipeline/size/latency with random weights
   (no trained DSFNetTiny checkpoint yet).
 
+[1.1.0]: https://github.com/MohammadThabetHassan/VoiceGuard/releases/tag/v1.1.0
 [1.0.0]: https://github.com/MohammadThabetHassan/VoiceGuard/releases/tag/v1.0.0

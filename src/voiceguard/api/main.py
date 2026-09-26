@@ -499,7 +499,10 @@ def _build_explanation(model, wav_1xT) -> ExplanationResult | None:
 
 
 def _explain_ssl(path: str, model_key: str) -> ExplanationResult | None:
-    """Run Integrated Gradients attribution on an SSL model (loads its own file)."""
+    """Run Integrated Gradients attribution on an SSL model (loads its own file).
+
+    Not called by any endpoint: /detect and /explain use ``_explain_ssl_fast``.
+    """
     model = registry.load(model_key)
     if model is None:
         return None
@@ -801,8 +804,9 @@ async def detect(
     — capped at VG_SCORE_SECONDS (default 60s) of audio; `seconds_analyzed`
     reports how much of the clip the verdict covers. Raw audio is auto-deleted
     after 60 seconds (PDPL compliance). Pass `explain=true` to include
-    Integrated Gradients attribution showing which time segments drove the
-    decision.
+    occlusion attribution (each time segment silenced in turn and the clip
+    re-scored) showing which time segments drove the decision; for the SSL /
+    DSFNet models it covers the first 3 s in 6 segments.
     """
     path, audio_hash = await save_upload(file)
     background_tasks.add_task(pdpl_auto_delete, path)
@@ -1382,9 +1386,11 @@ async def explain(
     """Return attribution for an uploaded audio file.
 
     Shows which time segments (10ms bins) drove the model's fake/real decision.
-    SSL models (wav2vec2, wavlm_base_plus, wav2vec2_large, aasist, dsfnet*) use
-    Integrated Gradients; the classical model uses occlusion (silence one
-    segment at a time and measure the probability drop).
+    Every model uses occlusion (silence one segment at a time and measure the
+    shift in fake-probability, in logit space). SSL / DSFNet models
+    (xls_r_aasist, xls_r, wav2vec2, wav2vec2_large, wavlm_*, aasist, dsfnet*)
+    are bounded to the first 3 s in 6 segments; the classical and
+    wav2vec2_spoof models cover the first 10 s in up to 20 segments.
     """
     path, _ = await save_upload(file)
     background_tasks.add_task(pdpl_auto_delete, path)

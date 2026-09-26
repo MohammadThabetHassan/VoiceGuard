@@ -1,6 +1,6 @@
 # Known Limitations & Detection-vs-Cloning Status
 
-_Last updated 2026-06-11._
+_Last updated 2026-09-26 (hosting status, premium-TTS status note); technical content as of 2026-06-11._
 
 > **Current deployed model: v9c** — official ASVspoof 2021 LA eval EER
 > **2.84% [95% CI 2.67–3.02]**, catches all clone families + ElevenLabs ~96%.
@@ -56,15 +56,22 @@ output starts mid-speech — the model partly keys on this. Consequences:
 - **Both live streams use the SSL model**: `/ws/stream` (mic) and `/twilio/stream`
   (VoIP) were upgraded from the classical detector; a simulated-call test proves
   the Twilio bridge end-to-end without a phone number.
-- **Durable hosting**: permanent custom-domain HTTPS via Cloudflare Tunnel
-  (`voice-deepfake-vishing-detector-generator.eu.cc`) + a watchdog that keeps the
-  server + tunnels alive across crashes/restarts.
+- **Hosting (historical)**: custom-domain HTTPS via Cloudflare Tunnel
+  (`voice-deepfake-vishing-detector-generator.eu.cc`) + a watchdog that kept the
+  server + tunnels alive across crashes/restarts, live from June 2026. The hosted
+  demo is currently offline; run it locally (README Quick start).
 - **Larger held-out eval** (100/family): v7 holds — real 97%, XTTS 100%, IndexTTS-2 96%.
 - **Premium-TTS (ElevenLabs) hardening in progress**: v7 catches 85% of held-out
   ElevenLabs-v3; a premium-hardened checkpoint (MLAAD ElevenLabs/Cartesia/DeepGram/
   Gemini/…) is being trained with a real-pass safety gate. See "Premium voices" below.
 
-## ⚠️ Premium commercial TTS (e.g. ElevenLabs) — partially open
+## ⚠️ Premium commercial TTS (e.g. ElevenLabs) — v7-era status (superseded by v9c)
+
+> **Update:** the deployed **v9c** detects **95.8%** (rounded ~96%) of held-out
+> ElevenLabs-v3 clips at 96% real-pass — see [`RESULTS.md`](RESULTS.md) and the
+> README Results table. The paragraph below is the v7-era status, kept as the
+> historical record like the other superseded sections in this file.
+
 v7 was trained on Kokoro/XTTS/IndexTTS-2, so commercial premium engines are
 out-of-distribution: it catches ~**85%** of held-out ElevenLabs-v3. Hardening on a
 broad MLAAD premium slice pushes held-out ElevenLabs detection to ~100%, but only
